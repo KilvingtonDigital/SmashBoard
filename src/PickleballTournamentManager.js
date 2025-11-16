@@ -1558,16 +1558,40 @@ const PickleballTournamentManager = () => {
 
                       <div className="mt-1">
                         <div className="font-semibold text-brand-primary text-sm">Team 1</div>
-                        <div className="text-brand-primary/90 text-sm">
-                          {m.team1 ? `${m.team1[0].name} (${m.team1[0].rating}) · ${m.team1[1].name} (${m.team1[1].rating})` : 'TBD'}
-                        </div>
+                        {m.team1 ? (
+                          <div className="text-brand-primary/90 text-xs sm:text-sm space-y-0.5 sm:space-y-0 break-words">
+                            <div className="sm:inline">
+                              <span>{m.team1[0].name}</span>
+                              <span className="text-brand-primary/60 ml-1">({m.team1[0].rating})</span>
+                            </div>
+                            <span className="hidden sm:inline mx-1">·</span>
+                            <div className="sm:inline">
+                              <span>{m.team1[1].name}</span>
+                              <span className="text-brand-primary/60 ml-1">({m.team1[1].rating})</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-brand-primary/90 text-sm">TBD</div>
+                        )}
                       </div>
 
                       <div className="mt-2">
                         <div className="font-semibold text-brand-primary text-sm">Team 2</div>
-                        <div className="text-brand-primary/90 text-sm">
-                          {m.team2 ? `${m.team2[0].name} (${m.team2[0].rating}) · ${m.team2[1].name} (${m.team2[1].rating})` : 'TBD'}
-                        </div>
+                        {m.team2 ? (
+                          <div className="text-brand-primary/90 text-xs sm:text-sm space-y-0.5 sm:space-y-0 break-words">
+                            <div className="sm:inline">
+                              <span>{m.team2[0].name}</span>
+                              <span className="text-brand-primary/60 ml-1">({m.team2[0].rating})</span>
+                            </div>
+                            <span className="hidden sm:inline mx-1">·</span>
+                            <div className="sm:inline">
+                              <span>{m.team2[1].name}</span>
+                              <span className="text-brand-primary/60 ml-1">({m.team2[1].rating})</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-brand-primary/90 text-sm">TBD</div>
+                        )}
                       </div>
 
                       <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
