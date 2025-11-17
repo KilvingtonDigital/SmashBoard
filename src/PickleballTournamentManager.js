@@ -2501,15 +2501,161 @@ const PickleballTournamentManager = () => {
 
         {tab === 'schedule' && (
           <div className="space-y-3 sm:space-y-4">
-            {rounds.length === 0 && (
-              <Card className="text-center py-8 sm:py-10">
-                <div className="text-3xl sm:text-4xl mb-2">🗓️</div>
-                <div className="text-base sm:text-lg font-semibold text-brand-primary">No rounds yet</div>
-                <p className="text-sm sm:text-base text-brand-primary/80 mt-1">
-                  Click "Generate Next Round" to start
-                </p>
-              </Card>
+            {/* Court Flow Management - Only for Round Robin */}
+            {tournamentType === 'round_robin' && (
+              <>
+                {/* Court Status Grid */}
+                <Card>
+                  <h3 className="text-sm font-semibold text-brand-primary mb-3">Court Status</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {courtStates.map(court => (
+                      <div key={court.courtNumber} className={`p-3 rounded-lg border-2 ${
+                        court.status === 'playing' ? 'border-green-500 bg-green-50' :
+                        court.status === 'cleaning' ? 'border-yellow-500 bg-yellow-50' :
+                        'border-gray-300 bg-gray-50'
+                      }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-bold text-brand-primary">Court {court.courtNumber}</span>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            court.status === 'playing' ? 'bg-green-200 text-green-800' :
+                            court.status === 'cleaning' ? 'bg-yellow-200 text-yellow-800' :
+                            'bg-gray-200 text-gray-800'
+                          }`}>
+                            {court.status.toUpperCase()}
+                          </span>
+                        </div>
+
+                        {court.currentMatch && (
+                          <div className="text-xs text-brand-primary/80 mb-2">
+                            {court.currentMatch.gameFormat === 'singles' ? (
+                              <div>{court.currentMatch.player1?.name} vs {court.currentMatch.player2?.name}</div>
+                            ) : (
+                              <div>{court.currentMatch.team1?.[0]?.name}/{court.currentMatch.team1?.[1]?.name} vs {court.currentMatch.team2?.[0]?.name}/{court.currentMatch.team2?.[1]?.name}</div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-1">
+                          {court.status === 'ready' && (
+                            <Button
+                              className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 text-xs py-1"
+                              onClick={() => assignMatchToCourt(court.courtNumber)}
+                            >
+                              Assign Match
+                            </Button>
+                          )}
+                          {court.status === 'playing' && (
+                            <>
+                              <Button
+                                className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 text-xs py-1"
+                                onClick={() => {
+                                  completeCourtMatch(court.courtNumber);
+                                }}
+                              >
+                                Complete Match
+                              </Button>
+                              <Button
+                                className="bg-gray-200 text-gray-700 hover:bg-gray-300 text-xs py-1"
+                                onClick={() => updateCourtStatus(court.courtNumber, 'cleaning')}
+                              >
+                                Set Cleaning
+                              </Button>
+                            </>
+                          )}
+                          {court.status === 'cleaning' && (
+                            <Button
+                              className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 text-xs py-1"
+                              onClick={() => updateCourtStatus(court.courtNumber, 'ready')}
+                            >
+                              Mark Ready
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {courtStates.every(c => c.status === 'ready') && rounds.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-brand-gray">
+                      <Button
+                        className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+                        onClick={() => {
+                          setCurrentRound(prev => prev + 1);
+                          alert(`Started Round ${currentRound + 2}. Assign matches to courts as they become ready.`);
+                        }}
+                      >
+                        Start New Round (Round {currentRound + 2})
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+
+                {/* Next Up Queue */}
+                <Card>
+                  <h3 className="text-sm font-semibold text-brand-primary mb-3">Next Up (Not Currently Playing)</h3>
+                  {getNextUpQueue.length === 0 ? (
+                    <p className="text-sm text-brand-primary/70">All players/teams are currently on court</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-brand-white">
+                          <tr className="text-left">
+                            <th className="p-2">Priority</th>
+                            <th className="p-2">{gameFormat === 'teamed_doubles' ? 'Team' : 'Player'}</th>
+                            <th className="p-2">Rating</th>
+                            <th className="p-2">Played</th>
+                            <th className="p-2">Sat Out</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getNextUpQueue.slice(0, 10).map((item, idx) => (
+                            <tr key={item.id} className="border-t border-brand-gray/60">
+                              <td className="p-2 font-bold text-brand-primary">{idx + 1}</td>
+                              <td className="p-2">
+                                {gameFormat === 'teamed_doubles' ?
+                                  `${item.player1.name} / ${item.player2.name}` :
+                                  item.name
+                                }
+                              </td>
+                              <td className="p-2">
+                                {gameFormat === 'teamed_doubles' ?
+                                  item.avgRating.toFixed(2) :
+                                  item.rating
+                                }
+                              </td>
+                              <td className="p-2">{item.roundsPlayed || 0}</td>
+                              <td className="p-2">{item.roundsSatOut || 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {getNextUpQueue.length > 10 && (
+                        <div className="text-xs text-brand-primary/60 mt-2">
+                          ...and {getNextUpQueue.length - 10} more
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </>
             )}
+
+            {/* Round History */}
+            <div className="border-t-2 border-brand-gray/40 pt-3">
+              <h3 className="text-sm font-semibold text-brand-primary mb-3">Match History</h3>
+              {rounds.length === 0 && (
+                <Card className="text-center py-8 sm:py-10">
+                  <div className="text-3xl sm:text-4xl mb-2">🗓️</div>
+                  <div className="text-base sm:text-lg font-semibold text-brand-primary">No matches yet</div>
+                  <p className="text-sm sm:text-base text-brand-primary/80 mt-1">
+                    {tournamentType === 'round_robin' ?
+                      'Assign matches to courts or use "Generate Next Round"' :
+                      'Click "Generate Next Round" to start'
+                    }
+                  </p>
+                </Card>
+              )}
+            </div>
 
             {rounds.map((round, rIdx) => (
               <details key={rIdx} open={rIdx === rounds.length - 1}>
