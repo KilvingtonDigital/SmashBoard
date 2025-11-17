@@ -64,7 +64,10 @@ const buildResults = (players, rounds, meta, kotStats = null) => {
         matchFormat: m.matchFormat || 'single_match',
         status: m.status,
         winner: m.status === 'completed' ? (s1 > s2 ? 'team1' : 'team2') : null,
-        pointsAwarded: m.pointsAwarded || null
+        pointsAwarded: m.pointsAwarded || null,
+        startTime: m.startTime || '',
+        endTime: m.endTime || '',
+        durationMinutes: m.durationMinutes || ''
       });
     })
   );
@@ -85,7 +88,7 @@ const toCSV = (results) => {
     't2_p1','t2_p1_rating','t2_p2','t2_p2_rating',
     'match_format','games_won_t1','games_won_t2',
     'game1_t1','game1_t2','game2_t1','game2_t2','game3_t1','game3_t2',
-    'winner','points_awarded'
+    'winner','points_awarded','start_time','end_time','duration_minutes'
   ];
   const rows = results.matches.map((m) =>
     [
@@ -99,7 +102,8 @@ const toCSV = (results) => {
       m.game1Score1, m.game1Score2,
       m.game2Score1, m.game2Score2,
       m.game3Score1, m.game3Score2,
-      m.winner || '', m.pointsAwarded || ''
+      m.winner || '', m.pointsAwarded || '',
+      m.startTime || '', m.endTime || '', m.durationMinutes || ''
     ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')
   );
   return [header.join(','), ...rows].join('\n');
@@ -1601,7 +1605,8 @@ const PickleballTournamentManager = () => {
       status: 'pending',
       winner: null,
       gameFormat: 'singles',
-      matchFormat: matchFormat
+      matchFormat: matchFormat,
+      startTime: new Date().toISOString()
     };
 
     // Update court state
@@ -1620,7 +1625,8 @@ const PickleballTournamentManager = () => {
           roundsSatOut: 0,
           lastPlayedRound: -1,
           opponents: new Map(),
-          teammates: new Map()
+          teammates: new Map(),
+          totalPlayMinutes: 0
         };
       }
       if (!updated[player2.id]) {
@@ -1629,7 +1635,8 @@ const PickleballTournamentManager = () => {
           roundsSatOut: 0,
           lastPlayedRound: -1,
           opponents: new Map(),
-          teammates: new Map()
+          teammates: new Map(),
+          totalPlayMinutes: 0
         };
       }
       return updated;
@@ -1695,7 +1702,8 @@ const PickleballTournamentManager = () => {
       status: 'pending',
       winner: null,
       gameFormat: 'doubles',
-      matchFormat: matchFormat
+      matchFormat: matchFormat,
+      startTime: new Date().toISOString()
     };
 
     // Update court state
@@ -1715,7 +1723,8 @@ const PickleballTournamentManager = () => {
             roundsSatOut: 0,
             lastPlayedRound: -1,
             opponents: new Map(),
-            teammates: new Map()
+            teammates: new Map(),
+            totalPlayMinutes: 0
           };
         }
       });
@@ -1815,7 +1824,8 @@ const PickleballTournamentManager = () => {
       status: 'pending',
       winner: null,
       gameFormat: 'teamed_doubles',
-      matchFormat: matchFormat
+      matchFormat: matchFormat,
+      startTime: new Date().toISOString()
     };
 
     // Update court state
@@ -1829,10 +1839,10 @@ const PickleballTournamentManager = () => {
     setTeamStats(prev => {
       const updated = { ...prev };
       if (!updated[team1.id]) {
-        updated[team1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+        updated[team1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), totalPlayMinutes: 0 };
       }
       if (!updated[team2.id]) {
-        updated[team2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+        updated[team2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), totalPlayMinutes: 0 };
       }
       return updated;
     });
@@ -1861,18 +1871,22 @@ const PickleballTournamentManager = () => {
     if (match.gameFormat === 'singles') {
       setPlayerStats(prev => {
         const updated = { ...prev };
+        const playTime = match.durationMinutes || 0;
+
         if (updated[match.player1.id]) {
           updated[match.player1.id] = {
             ...updated[match.player1.id],
             roundsPlayed: updated[match.player1.id].roundsPlayed + 1,
-            lastPlayedRound: currentRound
+            lastPlayedRound: currentRound,
+            totalPlayMinutes: (updated[match.player1.id].totalPlayMinutes || 0) + playTime
           };
         }
         if (updated[match.player2.id]) {
           updated[match.player2.id] = {
             ...updated[match.player2.id],
             roundsPlayed: updated[match.player2.id].roundsPlayed + 1,
-            lastPlayedRound: currentRound
+            lastPlayedRound: currentRound,
+            totalPlayMinutes: (updated[match.player2.id].totalPlayMinutes || 0) + playTime
           };
         }
         // Note: roundsSatOut is not tracked in continuous play mode
@@ -1880,6 +1894,8 @@ const PickleballTournamentManager = () => {
         return updated;
       });
     } else if (match.gameFormat === 'teamed_doubles') {
+      const playTime = match.durationMinutes || 0;
+
       setTeamStats(prev => {
         const updated = { ...prev };
 
@@ -1891,19 +1907,21 @@ const PickleballTournamentManager = () => {
           updated[match.team2Id].opponents.set(match.team1Id, (updated[match.team2Id].opponents.get(match.team1Id) || 0) + 1);
         }
 
-        // Update rounds played
+        // Update rounds played and play time
         if (updated[match.team1Id]) {
           updated[match.team1Id] = {
             ...updated[match.team1Id],
             roundsPlayed: updated[match.team1Id].roundsPlayed + 1,
-            lastPlayedRound: currentRound
+            lastPlayedRound: currentRound,
+            totalPlayMinutes: (updated[match.team1Id].totalPlayMinutes || 0) + playTime
           };
         }
         if (updated[match.team2Id]) {
           updated[match.team2Id] = {
             ...updated[match.team2Id],
             roundsPlayed: updated[match.team2Id].roundsPlayed + 1,
-            lastPlayedRound: currentRound
+            lastPlayedRound: currentRound,
+            totalPlayMinutes: (updated[match.team2Id].totalPlayMinutes || 0) + playTime
           };
         }
         // Note: roundsSatOut is not tracked in continuous play mode
@@ -1937,13 +1955,16 @@ const PickleballTournamentManager = () => {
           }
         }
 
-        // Update rounds played for all players
+        // Update rounds played and play time for all players
+        const playTime = match.durationMinutes || 0;
+
         match.team1?.forEach(p => {
           if (updated[p.id]) {
             updated[p.id] = {
               ...updated[p.id],
               roundsPlayed: updated[p.id].roundsPlayed + 1,
-              lastPlayedRound: currentRound
+              lastPlayedRound: currentRound,
+              totalPlayMinutes: (updated[p.id].totalPlayMinutes || 0) + playTime
             };
           }
         });
@@ -1952,7 +1973,8 @@ const PickleballTournamentManager = () => {
             updated[p.id] = {
               ...updated[p.id],
               roundsPlayed: updated[p.id].roundsPlayed + 1,
-              lastPlayedRound: currentRound
+              lastPlayedRound: currentRound,
+              totalPlayMinutes: (updated[p.id].totalPlayMinutes || 0) + playTime
             };
           }
         });
@@ -2099,7 +2121,15 @@ const PickleballTournamentManager = () => {
   const setWinner = (m, side) => {
     m.winner = side === 1 ? 'team1' : 'team2';
     m.status = 'completed';
-    
+    m.endTime = new Date().toISOString();
+
+    // Calculate match duration in minutes
+    if (m.startTime && m.endTime) {
+      const start = new Date(m.startTime);
+      const end = new Date(m.endTime);
+      m.durationMinutes = Math.round((end - start) / 1000 / 60); // Convert ms to minutes
+    }
+
     if (tournamentType === 'king_of_court' && m.pointsForWin) {
       updateKOTStats(kotStats, m);
       setKotStats({...kotStats});
