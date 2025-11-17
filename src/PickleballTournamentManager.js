@@ -1322,6 +1322,7 @@ const PickleballTournamentManager = () => {
   const [playerStats, setPlayerStats] = useState({});
   const [kotStats, setKotStats] = useState({});
   const [teamStats, setTeamStats] = useState({}); // For teamed doubles
+  const [courtStates, setCourtStates] = useState([]); // Court flow management: [{courtNumber, status, currentMatch}]
 
   const [tab, setTab] = useState('setup');
   const [endOpen, setEndOpen] = useState(false);
@@ -1339,14 +1340,24 @@ const PickleballTournamentManager = () => {
     localStorage.setItem('pb_roster', JSON.stringify(players));
   }, [players]);
 
+  // Initialize court states when courts number changes
+  useEffect(() => {
+    const newCourtStates = Array.from({ length: courts }, (_, i) => ({
+      courtNumber: i + 1,
+      status: 'ready', // ready, playing, cleaning
+      currentMatch: null
+    }));
+    setCourtStates(newCourtStates);
+  }, [courts]);
+
   useEffect(() => {
     const snapshot = {
-      players, rounds, playerStats, kotStats, teamStats, currentRound, teams,
+      players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates,
       meta: { courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, ts: Date.now() },
       locked
     };
     localStorage.setItem('pb_session', JSON.stringify(snapshot));
-  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, locked]);
+  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, locked]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1359,6 +1370,79 @@ const PickleballTournamentManager = () => {
   }, [rounds.length, exportedThisSession]);
 
   const presentPlayers = useMemo(() => players.filter((p) => p.present !== false), [players]);
+
+  // Get players/teams currently playing on courts
+  const getPlayersOnCourt = useMemo(() => {
+    const playingPlayerIds = new Set();
+    courtStates.forEach(court => {
+      if (court.status === 'playing' && court.currentMatch) {
+        const match = court.currentMatch;
+        if (match.gameFormat === 'singles') {
+          if (match.player1) playingPlayerIds.add(match.player1.id);
+          if (match.player2) playingPlayerIds.add(match.player2.id);
+        } else {
+          // Doubles or teamed doubles
+          match.team1?.forEach(p => playingPlayerIds.add(p.id));
+          match.team2?.forEach(p => playingPlayerIds.add(p.id));
+        }
+      }
+    });
+    return playingPlayerIds;
+  }, [courtStates]);
+
+  const getTeamsOnCourt = useMemo(() => {
+    const playingTeamIds = new Set();
+    courtStates.forEach(court => {
+      if (court.status === 'playing' && court.currentMatch) {
+        const match = court.currentMatch;
+        if (match.team1Id) playingTeamIds.add(match.team1Id);
+        if (match.team2Id) playingTeamIds.add(match.team2Id);
+      }
+    });
+    return playingTeamIds;
+  }, [courtStates]);
+
+  // Get available players (present and not currently playing)
+  const availablePlayers = useMemo(() => {
+    return presentPlayers.filter(p => !getPlayersOnCourt.has(p.id));
+  }, [presentPlayers, getPlayersOnCourt]);
+
+  // Get available teams (not currently playing)
+  const availableTeams = useMemo(() => {
+    return teams.filter(t => !getTeamsOnCourt.has(t.id));
+  }, [teams, getTeamsOnCourt]);
+
+  // Get next-up queue based on fairness
+  const getNextUpQueue = useMemo(() => {
+    if (tournamentType === 'round_robin') {
+      if (gameFormat === 'singles') {
+        // Singles: prioritize players by sat-out rounds
+        return availablePlayers
+          .map(p => {
+            const stats = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+            return { ...p, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+          })
+          .sort((a, b) => b.priority - a.priority);
+      } else if (gameFormat === 'teamed_doubles') {
+        // Teamed doubles: prioritize teams by sat-out rounds
+        return availableTeams
+          .map(t => {
+            const stats = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+            return { ...t, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+          })
+          .sort((a, b) => b.priority - a.priority);
+      } else {
+        // Regular doubles: prioritize players by sat-out rounds
+        return availablePlayers
+          .map(p => {
+            const stats = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+            return { ...p, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+          })
+          .sort((a, b) => b.priority - a.priority);
+      }
+    }
+    return [];
+  }, [tournamentType, gameFormat, availablePlayers, availableTeams, playerStats, teamStats]);
 
   const addPlayer = () => {
     const name = form.name.trim();
@@ -1418,6 +1502,293 @@ const PickleballTournamentManager = () => {
     if (!add.length) return alert('Nothing to add. Use: Name, Rating, Gender');
     setPlayers((prev) => [...prev, ...add]);
     setBulkText('');
+  };
+
+  // Court Flow Management Functions
+  const assignMatchToCourt = (courtNumber) => {
+    if (tournamentType === 'round_robin') {
+      if (gameFormat === 'singles') {
+        assignSinglesMatchToCourt(courtNumber);
+      } else if (gameFormat === 'teamed_doubles') {
+        assignTeamedDoublesMatchToCourt(courtNumber);
+      } else {
+        assignDoublesMatchToCourt(courtNumber);
+      }
+    } else if (tournamentType === 'king_of_court') {
+      alert('King of Court mode uses full round generation. Use "Generate Next Round" instead.');
+    }
+  };
+
+  const assignSinglesMatchToCourt = (courtNumber) => {
+    if (availablePlayers.length < 2) {
+      return alert('Need at least 2 available players (not currently playing)');
+    }
+
+    // Get best pair from available players
+    const sortedAvailable = [...availablePlayers].sort((a, b) => {
+      const statsA = playerStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+      const statsB = playerStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+      return statsB.roundsSatOut - statsA.roundsSatOut || statsA.roundsPlayed - statsB.roundsPlayed;
+    });
+
+    const player1 = sortedAvailable[0];
+    const player2 = sortedAvailable[1];
+
+    const match = {
+      id: uid(),
+      court: courtNumber,
+      player1,
+      player2,
+      diff: Math.abs(player1.rating - player2.rating),
+      score1: '',
+      score2: '',
+      game1Score1: '',
+      game1Score2: '',
+      game2Score1: '',
+      game2Score2: '',
+      game3Score1: '',
+      game3Score2: '',
+      status: 'pending',
+      winner: null,
+      gameFormat: 'singles',
+      matchFormat: matchFormat
+    };
+
+    // Update court state
+    setCourtStates(prev => prev.map(c =>
+      c.courtNumber === courtNumber
+        ? { ...c, status: 'playing', currentMatch: match }
+        : c
+    ));
+
+    // Initialize player stats if needed
+    if (!playerStats[player1.id]) {
+      playerStats[player1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+    }
+    if (!playerStats[player2.id]) {
+      playerStats[player2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+    }
+  };
+
+  const assignDoublesMatchToCourt = (courtNumber) => {
+    if (availablePlayers.length < 4) {
+      return alert('Need at least 4 available players (not currently playing)');
+    }
+
+    // Get best group of 4 from available players
+    const sortedAvailable = [...availablePlayers].sort((a, b) => {
+      const statsA = playerStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+      const statsB = playerStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+      return statsB.roundsSatOut - statsA.roundsSatOut || statsA.roundsPlayed - statsB.roundsPlayed;
+    });
+
+    const group = sortedAvailable.slice(0, 4);
+    const teamSplit = findBestTeamSplit(group, playerStats);
+
+    const match = {
+      id: uid(),
+      court: courtNumber,
+      team1: teamSplit.team1,
+      team2: teamSplit.team2,
+      diff: Math.abs(avg(teamSplit.team1) - avg(teamSplit.team2)),
+      score1: '',
+      score2: '',
+      game1Score1: '',
+      game1Score2: '',
+      game2Score1: '',
+      game2Score2: '',
+      game3Score1: '',
+      game3Score2: '',
+      status: 'pending',
+      winner: null,
+      gameFormat: 'doubles',
+      matchFormat: matchFormat
+    };
+
+    // Update court state
+    setCourtStates(prev => prev.map(c =>
+      c.courtNumber === courtNumber
+        ? { ...c, status: 'playing', currentMatch: match }
+        : c
+    ));
+
+    // Initialize player stats if needed
+    [...teamSplit.team1, ...teamSplit.team2].forEach(p => {
+      if (!playerStats[p.id]) {
+        playerStats[p.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+      }
+    });
+  };
+
+  const assignTeamedDoublesMatchToCourt = (courtNumber) => {
+    if (availableTeams.length < 2) {
+      return alert('Need at least 2 available teams (not currently playing)');
+    }
+
+    // Sort by gender first, then by priority
+    const maleTeams = availableTeams.filter(t => t.gender === 'male_male');
+    const femaleTeams = availableTeams.filter(t => t.gender === 'female_female');
+    const mixedTeams = availableTeams.filter(t => t.gender === 'mixed');
+
+    let team1, team2, genderType;
+
+    // Try to match within the largest gender group
+    if (maleTeams.length >= 2) {
+      const sorted = maleTeams.sort((a, b) => {
+        const statsA = teamStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        const statsB = teamStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        return statsB.roundsSatOut - statsA.roundsSatOut || statsA.roundsPlayed - statsB.roundsPlayed;
+      });
+      team1 = sorted[0];
+      team2 = sorted[1];
+      genderType = 'male_male';
+    } else if (femaleTeams.length >= 2) {
+      const sorted = femaleTeams.sort((a, b) => {
+        const statsA = teamStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        const statsB = teamStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        return statsB.roundsSatOut - statsA.roundsSatOut || statsA.roundsPlayed - statsB.roundsPlayed;
+      });
+      team1 = sorted[0];
+      team2 = sorted[1];
+      genderType = 'female_female';
+    } else if (mixedTeams.length >= 2) {
+      const sorted = mixedTeams.sort((a, b) => {
+        const statsA = teamStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        const statsB = teamStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        return statsB.roundsSatOut - statsA.roundsSatOut || statsA.roundsPlayed - statsB.roundsPlayed;
+      });
+      team1 = sorted[0];
+      team2 = sorted[1];
+      genderType = 'mixed';
+    } else {
+      return alert('Need at least 2 teams of the same gender type available');
+    }
+
+    const match = {
+      id: uid(),
+      court: courtNumber,
+      team1: [team1.player1, team1.player2],
+      team2: [team2.player1, team2.player2],
+      team1Id: team1.id,
+      team2Id: team2.id,
+      teamGender: genderType,
+      diff: Math.abs(team1.avgRating - team2.avgRating),
+      score1: '',
+      score2: '',
+      game1Score1: '',
+      game1Score2: '',
+      game2Score1: '',
+      game2Score2: '',
+      game3Score1: '',
+      game3Score2: '',
+      status: 'pending',
+      winner: null,
+      gameFormat: 'teamed_doubles',
+      matchFormat: matchFormat
+    };
+
+    // Update court state
+    setCourtStates(prev => prev.map(c =>
+      c.courtNumber === courtNumber
+        ? { ...c, status: 'playing', currentMatch: match }
+        : c
+    ));
+
+    // Initialize team stats if needed
+    if (!teamStats[team1.id]) {
+      teamStats[team1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+    }
+    if (!teamStats[team2.id]) {
+      teamStats[team2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+    }
+  };
+
+  const completeCourtMatch = (courtNumber) => {
+    const court = courtStates.find(c => c.courtNumber === courtNumber);
+    if (!court || !court.currentMatch) return;
+
+    const match = court.currentMatch;
+
+    // Add match to current round in rounds array
+    setRounds(prev => {
+      const newRounds = [...prev];
+      if (newRounds.length === 0 || newRounds.length <= currentRound) {
+        // Create new round if needed
+        newRounds.push([match]);
+      } else {
+        // Add to current round
+        newRounds[currentRound] = [...newRounds[currentRound], match];
+      }
+      return newRounds;
+    });
+
+    // Update player/team stats
+    if (match.gameFormat === 'singles') {
+      if (playerStats[match.player1.id]) {
+        playerStats[match.player1.id].roundsPlayed++;
+        playerStats[match.player1.id].lastPlayedRound = currentRound;
+      }
+      if (playerStats[match.player2.id]) {
+        playerStats[match.player2.id].roundsPlayed++;
+        playerStats[match.player2.id].lastPlayedRound = currentRound;
+      }
+    } else if (match.gameFormat === 'teamed_doubles') {
+      if (teamStats[match.team1Id]) {
+        teamStats[match.team1Id].roundsPlayed++;
+        teamStats[match.team1Id].lastPlayedRound = currentRound;
+      }
+      if (teamStats[match.team2Id]) {
+        teamStats[match.team2Id].roundsPlayed++;
+        teamStats[match.team2Id].lastPlayedRound = currentRound;
+      }
+    } else {
+      // Regular doubles
+      match.team1?.forEach(p => {
+        if (playerStats[p.id]) {
+          playerStats[p.id].roundsPlayed++;
+          playerStats[p.id].lastPlayedRound = currentRound;
+        }
+      });
+      match.team2?.forEach(p => {
+        if (playerStats[p.id]) {
+          playerStats[p.id].roundsPlayed++;
+          playerStats[p.id].lastPlayedRound = currentRound;
+        }
+      });
+    }
+
+    // Update sitting-out stats for those not playing
+    if (match.gameFormat === 'singles' || match.gameFormat === 'doubles') {
+      availablePlayers.forEach(p => {
+        if (playerStats[p.id]) {
+          playerStats[p.id].roundsSatOut++;
+        }
+      });
+    } else if (match.gameFormat === 'teamed_doubles') {
+      availableTeams.forEach(t => {
+        if (teamStats[t.id]) {
+          teamStats[t.id].roundsSatOut++;
+        }
+      });
+    }
+
+    // Free up the court
+    setCourtStates(prev => prev.map(c =>
+      c.courtNumber === courtNumber
+        ? { ...c, status: 'ready', currentMatch: null }
+        : c
+    ));
+
+    setPlayerStats({...playerStats});
+    setTeamStats({...teamStats});
+  };
+
+  const updateCourtStatus = (courtNumber, status) => {
+    setCourtStates(prev => prev.map(c =>
+      c.courtNumber === courtNumber
+        ? { ...c, status }
+        : c
+    ));
   };
 
   const generateNextRound = () => {
