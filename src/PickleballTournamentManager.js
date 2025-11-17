@@ -63,7 +63,7 @@ const buildResults = (players, rounds, meta, kotStats = null) => {
         game3Score2: m.game3Score2 || '',
         matchFormat: m.matchFormat || 'single_match',
         status: m.status,
-        winner: m.status === 'completed' ? (s1 > s2 ? 'team1' : 'team2') : null,
+        winner: m.winner || null,
         pointsAwarded: m.pointsAwarded || null,
         startTime: m.startTime || '',
         endTime: m.endTime || '',
