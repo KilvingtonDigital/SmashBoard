@@ -2083,22 +2083,33 @@ const PickleballTournamentManager = () => {
 
       // Best of 3 format
       if (m.matchFormat === 'best_of_3') {
-        // Set default scores for 2-0 win
-        if (side === 1) {
-          m.game1Score1 = 11;
-          m.game1Score2 = 8;
-          m.game2Score1 = 11;
-          m.game2Score2 = 9;
-          m.game3Score1 = '';
-          m.game3Score2 = '';
-        } else {
-          m.game1Score1 = 8;
-          m.game1Score2 = 11;
-          m.game2Score1 = 9;
-          m.game2Score2 = 11;
-          m.game3Score1 = '';
-          m.game3Score2 = '';
+        // Only auto-fill scores if they haven't been entered yet
+        const hasScores = (m.game1Score1 !== '' && m.game1Score1 != null) ||
+                         (m.game1Score2 !== '' && m.game1Score2 != null) ||
+                         (m.game2Score1 !== '' && m.game2Score1 != null) ||
+                         (m.game2Score2 !== '' && m.game2Score2 != null) ||
+                         (m.game3Score1 !== '' && m.game3Score1 != null) ||
+                         (m.game3Score2 !== '' && m.game3Score2 != null);
+
+        if (!hasScores) {
+          // Set default scores for 2-0 win only if no scores entered
+          if (side === 1) {
+            m.game1Score1 = 11;
+            m.game1Score2 = 8;
+            m.game2Score1 = 11;
+            m.game2Score2 = 9;
+            m.game3Score1 = '';
+            m.game3Score2 = '';
+          } else {
+            m.game1Score1 = 8;
+            m.game1Score2 = 11;
+            m.game2Score1 = 9;
+            m.game2Score2 = 11;
+            m.game3Score1 = '';
+            m.game3Score2 = '';
+          }
         }
+        // If scores exist, just set the winner without modifying scores
         setWinner(m, side);
         return newRounds;
       }
