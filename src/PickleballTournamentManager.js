@@ -40,18 +40,26 @@ const buildResults = (players, rounds, meta, kotStats = null) => {
         team2: m.team2?.map((p) => ({ id: p.id, name: p.name, rating: p.rating })),
         score1: s1,
         score2: s2,
+        // Include individual game scores for best of 3
+        game1Score1: m.game1Score1 || '',
+        game1Score2: m.game1Score2 || '',
+        game2Score1: m.game2Score1 || '',
+        game2Score2: m.game2Score2 || '',
+        game3Score1: m.game3Score1 || '',
+        game3Score2: m.game3Score2 || '',
+        matchFormat: m.matchFormat || 'single_match',
         status: m.status,
         winner: m.status === 'completed' ? (s1 > s2 ? 'team1' : 'team2') : null,
         pointsAwarded: m.pointsAwarded || null
       });
     })
   );
-  return { 
-    generatedAt: new Date().toISOString(), 
-    players, 
-    matches, 
+  return {
+    generatedAt: new Date().toISOString(),
+    players,
+    matches,
     meta,
-    kingOfCourtStats: kotStats 
+    kingOfCourtStats: kotStats
   };
 };
 
@@ -61,7 +69,9 @@ const toCSV = (results) => {
     'round','court','court_level',
     't1_p1','t1_p1_rating','t1_p2','t1_p2_rating',
     't2_p1','t2_p1_rating','t2_p2','t2_p2_rating',
-    'score1','score2','winner','points_awarded'
+    'match_format','games_won_t1','games_won_t2',
+    'game1_t1','game1_t2','game2_t1','game2_t2','game3_t1','game3_t2',
+    'winner','points_awarded'
   ];
   const rows = results.matches.map((m) =>
     [
@@ -70,7 +80,12 @@ const toCSV = (results) => {
       m.team1?.[1]?.name || '', m.team1?.[1]?.rating || '',
       m.team2?.[0]?.name || '', m.team2?.[0]?.rating || '',
       m.team2?.[1]?.name || '', m.team2?.[1]?.rating || '',
-      m.score1, m.score2, m.winner || '', m.pointsAwarded || ''
+      m.matchFormat,
+      m.score1, m.score2,
+      m.game1Score1, m.game1Score2,
+      m.game2Score1, m.game2Score2,
+      m.game3Score1, m.game3Score2,
+      m.winner || '', m.pointsAwarded || ''
     ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')
   );
   return [header.join(','), ...rows].join('\n');
