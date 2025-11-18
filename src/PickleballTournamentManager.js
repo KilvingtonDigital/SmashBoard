@@ -2514,7 +2514,8 @@ const PickleballTournamentManager = () => {
             updated[p.id] = {
               ...updated[p.id],
               roundsPlayed: updated[p.id].roundsPlayed + 1,
-              lastPlayedRound: currentRound
+              lastPlayedRound: currentRound,
+              totalPlayMinutes: (updated[p.id].totalPlayMinutes || 0) + playTime
             };
           }
         });
@@ -2542,11 +2543,6 @@ const PickleballTournamentManager = () => {
           }
         });
 
-              lastPlayedRound: currentRound,
-              totalPlayMinutes: (updated[p.id].totalPlayMinutes || 0) + playTime
-            };
-          }
-        });
         // Note: roundsSatOut is not tracked in continuous play mode
         // It only makes sense for traditional round-based generation
         return updated;
