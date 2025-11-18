@@ -1290,43 +1290,62 @@ const assignPlayersToCourts = (groupPlayers, kotStats, previousRounds, roundInde
   });
   
   const sortedPlayers = [];
-  
+
   for (let courtIdx = 0; courtIdx < numCourts; courtIdx++) {
     const courtNumber = startingCourtIndex + courtIdx;
-    
-    const winnersFromThisCourt = playerResults.filter(pr => 
+
+    const winnersFromThisCourt = playerResults.filter(pr =>
       pr.lastCourt === courtNumber && pr.won
     ).map(pr => pr.player);
-    
-    const winnersFromBelowCourt = courtIdx < numCourts - 1 ? 
-      playerResults.filter(pr => 
+
+    // Winners from the court below move up (except for the last court)
+    const winnersFromBelowCourt = courtIdx < numCourts - 1 ?
+      playerResults.filter(pr =>
         pr.lastCourt === courtNumber + 1 && pr.won
       ).map(pr => pr.player).slice(0, 2) : [];
-    
-    const losersFromThisCourt = playerResults.filter(pr => 
+
+    const losersFromThisCourt = playerResults.filter(pr =>
       pr.lastCourt === courtNumber && !pr.won
     ).map(pr => pr.player);
-    
-    let courtPlayers = [...winnersFromThisCourt];
-    
-    if (courtIdx === 0) {
+
+    // Losers from the court above move down (except for the first court)
+    const losersFromAboveCourt = courtIdx > 0 ?
+      playerResults.filter(pr =>
+        pr.lastCourt === courtNumber - 1 && !pr.won
+      ).map(pr => pr.player).slice(0, 2) : [];
+
+    let courtPlayers = [];
+
+    // Priority order for filling the court:
+    // 1. Winners from THIS court stay
+    courtPlayers.push(...winnersFromThisCourt);
+
+    // 2. Losers from ABOVE court move down (not applicable to Court 1/King court)
+    if (courtIdx > 0) {
+      courtPlayers.push(...losersFromAboveCourt);
+    }
+
+    // 3. Winners from BELOW court move up (not applicable to last court)
+    if (courtIdx < numCourts - 1) {
       courtPlayers.push(...winnersFromBelowCourt);
     }
-    
+
+    // 4. Fill remaining slots with losers from THIS court
     while (courtPlayers.length < 4 && losersFromThisCourt.length > 0) {
       courtPlayers.push(losersFromThisCourt.shift());
     }
-    
+
+    // 5. Fill any remaining slots with available players
     if (courtPlayers.length < 4) {
       const available = playerResults
         .filter(pr => !sortedPlayers.includes(pr.player))
         .map(pr => pr.player);
-      
+
       while (courtPlayers.length < 4 && available.length > 0) {
         courtPlayers.push(available.shift());
       }
     }
-    
+
     sortedPlayers.push(...courtPlayers.slice(0, 4));
   }
   
