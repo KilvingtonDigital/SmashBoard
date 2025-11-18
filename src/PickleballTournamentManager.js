@@ -1295,85 +1295,113 @@ const assignPlayersToCourts = (groupPlayers, kotStats, previousRounds, roundInde
     });
   });
   
-  playerResults.sort((a, b) => {
-    if (a.lastCourt !== b.lastCourt) {
-      return a.lastCourt - b.lastCourt;
-    }
-    if (a.won !== b.won) {
-      return a.won ? -1 : 1;
-    }
-    return b.totalPoints - a.totalPoints;
-  });
-  
-  const sortedPlayers = [];
+  console.log(`\n=== KOT ROTATION DEBUG (Round ${roundIndex}) ===`);
+  console.log(`Courts ${startingCourtIndex} to ${startingCourtIndex + numCourts - 1}:`);
+
+  // FIXED: Pre-calculate all court assignments before assigning any players
+  // This prevents earlier courts from "stealing" players needed by later courts
+  const courtAssignments = [];
+  const assignedPlayers = new Set();
 
   for (let courtIdx = 0; courtIdx < numCourts; courtIdx++) {
     const courtNumber = startingCourtIndex + courtIdx;
+    const courtPlayers = [];
 
-    // Get all players for each category
+    // Get all candidates for each category (excluding already assigned players)
     const winnersFromThisCourt = playerResults.filter(pr =>
-      pr.lastCourt === courtNumber && pr.won
+      pr.lastCourt === courtNumber && pr.won && !assignedPlayers.has(pr.player.id)
+    ).map(pr => pr.player);
+
+    const losersFromThisCourt = playerResults.filter(pr =>
+      pr.lastCourt === courtNumber && !pr.won && !assignedPlayers.has(pr.player.id)
     ).map(pr => pr.player);
 
     const winnersFromBelowCourt = courtIdx < numCourts - 1 ?
       playerResults.filter(pr =>
-        pr.lastCourt === courtNumber + 1 && pr.won
-      ).map(pr => pr.player).slice(0, 2) : [];
-
-    const losersFromThisCourt = playerResults.filter(pr =>
-      pr.lastCourt === courtNumber && !pr.won
-    ).map(pr => pr.player);
+        pr.lastCourt === courtNumber + 1 && pr.won && !assignedPlayers.has(pr.player.id)
+      ).map(pr => pr.player) : [];
 
     const losersFromAboveCourt = courtIdx > 0 ?
       playerResults.filter(pr =>
-        pr.lastCourt === courtNumber - 1 && !pr.won
-      ).map(pr => pr.player).slice(0, 2) : [];
+        pr.lastCourt === courtNumber - 1 && !pr.won && !assignedPlayers.has(pr.player.id)
+      ).map(pr => pr.player) : [];
 
-    let courtPlayers = [];
+    console.log(`\nCourt ${courtNumber} (index ${courtIdx}):`);
+    console.log(`  Winners staying: ${winnersFromThisCourt.length}, Losers staying: ${losersFromThisCourt.length}`);
+    console.log(`  Winners moving up: ${winnersFromBelowCourt.length}, Losers moving down: ${losersFromAboveCourt.length}`);
 
-    // Helper function to add players only if not already assigned
-    const addPlayersIfNotAssigned = (playersToAdd) => {
-      playersToAdd.forEach(player => {
-        if (!sortedPlayers.includes(player) && !courtPlayers.includes(player)) {
-          courtPlayers.push(player);
-        }
-      });
-    };
+    // FIXED ROTATION LOGIC:
+    // For King/Top Court (courtIdx === 0):
+    //   - Keep 2 winners from this court
+    //   - Take 2 winners from below court
+    //
+    // For Middle Courts (0 < courtIdx < numCourts - 1):
+    //   - Take 2 losers from above court (dropping down)
+    //   - Take 2 winners from below court (moving up)
+    //
+    // For Bottom Court (courtIdx === numCourts - 1):
+    //   - Take 2 losers from above court (dropping down)
+    //   - Keep 2 losers from this court
 
-    // Priority order for filling the court:
-    // 1. Winners from THIS court stay
-    addPlayersIfNotAssigned(winnersFromThisCourt);
-
-    // 2. Losers from ABOVE court move down (not applicable to Court 1/King court)
-    if (courtIdx > 0) {
-      addPlayersIfNotAssigned(losersFromAboveCourt);
-    }
-
-    // 3. Winners from BELOW court move up (not applicable to last court)
-    if (courtIdx < numCourts - 1) {
-      addPlayersIfNotAssigned(winnersFromBelowCourt);
-    }
-
-    // 4. Fill remaining slots with losers from THIS court
-    addPlayersIfNotAssigned(losersFromThisCourt);
-
-    // 5. Fill any remaining slots with available players
-    if (courtPlayers.length < 4) {
-      const available = playerResults
-        .filter(pr => !sortedPlayers.includes(pr.player) && !courtPlayers.includes(pr.player))
-        .map(pr => pr.player);
-
-      while (courtPlayers.length < 4 && available.length > 0) {
-        courtPlayers.push(available.shift());
+    if (courtIdx === 0) {
+      // King/Top Court: winners stay + winners from below move up
+      courtPlayers.push(...winnersFromThisCourt.slice(0, 2));
+      const needed = 4 - courtPlayers.length;
+      if (needed > 0) {
+        courtPlayers.push(...winnersFromBelowCourt.slice(0, needed));
+      }
+    } else if (courtIdx === numCourts - 1) {
+      // Bottom Court: losers from above + losers stay
+      courtPlayers.push(...losersFromAboveCourt.slice(0, 2));
+      const needed = 4 - courtPlayers.length;
+      if (needed > 0) {
+        courtPlayers.push(...losersFromThisCourt.slice(0, needed));
+      }
+    } else {
+      // Middle Courts: losers from above + winners from below
+      courtPlayers.push(...losersFromAboveCourt.slice(0, 2));
+      const needed = 4 - courtPlayers.length;
+      if (needed > 0) {
+        courtPlayers.push(...winnersFromBelowCourt.slice(0, needed));
       }
     }
 
-    sortedPlayers.push(...courtPlayers.slice(0, 4));
+    // Fill any remaining slots with available players (prioritize players from this court)
+    if (courtPlayers.length < 4) {
+      const availableFromThisCourt = [...winnersFromThisCourt, ...losersFromThisCourt]
+        .filter(p => !courtPlayers.some(cp => cp.id === p.id));
+
+      const availableFromOtherCourts = playerResults
+        .filter(pr => !assignedPlayers.has(pr.player.id) &&
+                      pr.lastCourt !== courtNumber &&
+                      !courtPlayers.some(p => p.id === pr.player.id))
+        .map(pr => pr.player);
+
+      const allAvailable = [...availableFromThisCourt, ...availableFromOtherCourts];
+
+      console.log(`  Court ${courtNumber} needs ${4 - courtPlayers.length} more players, ${allAvailable.length} available`);
+
+      while (courtPlayers.length < 4 && allAvailable.length > 0) {
+        courtPlayers.push(allAvailable.shift());
+      }
+    }
+
+    // Mark these players as assigned
+    courtPlayers.forEach(p => assignedPlayers.add(p.id));
+    courtAssignments.push(courtPlayers.slice(0, 4));
+
+    console.log(`  Court ${courtNumber} final: ${courtPlayers.map(p => p.name).join(', ')}`);
   }
-  
-  const remaining = groupPlayers.filter(p => !sortedPlayers.includes(p));
+
+  // Flatten all court assignments into final player order
+  const sortedPlayers = courtAssignments.flat();
+
+  // Add any remaining unassigned players
+  const remaining = groupPlayers.filter(p => !assignedPlayers.has(p.id));
   sortedPlayers.push(...remaining);
-  
+
+  console.log(`\nTotal assigned: ${sortedPlayers.length}, Remaining: ${remaining.length}`);
+
   return sortedPlayers;
 };
 
