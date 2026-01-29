@@ -24,6 +24,7 @@ const Field = ({ label, children, hint }) => (
 );
 
 /* =====================  HELPERS  ===================== */
+const ENABLE_KOT_V2 = false; // Set to true to enable King of Court (V2 feature)
 const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const avg = (t) => (t[0].rating + t[1].rating) / 2;
 
@@ -3162,7 +3163,7 @@ const PickleballTournamentManager = () => {
                     className="w-full h-11 rounded-lg border border-brand-gray px-3 focus:border-brand-secondary focus:ring-brand-secondary"
                   >
                     <option value="round_robin">Round Robin</option>
-                    <option value="king_of_court">King of Court</option>
+                    {ENABLE_KOT_V2 && <option value="king_of_court">King of Court</option>}
                   </select>
                 </Field>
 
