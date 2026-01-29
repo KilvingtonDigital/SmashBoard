@@ -7,10 +7,14 @@ const router = express.Router();
 
 // Validation rules
 const registerValidation = [
-  body('username')
+  body('firstName')
     .trim()
-    .isLength({ min: 3, max: 50 })
-    .withMessage('Username must be between 3 and 50 characters'),
+    .notEmpty().withMessage('First name is required')
+    .isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters'),
+  body('lastName')
+    .trim()
+    .notEmpty().withMessage('Last name is required')
+    .isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters'),
   body('email')
     .trim()
     .isEmail()
