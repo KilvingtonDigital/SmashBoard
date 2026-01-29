@@ -38,7 +38,11 @@ function AppContent() {
       {/* User info bar */}
       <div className="bg-dark-gray border-b border-gray px-4 py-2 flex justify-between items-center">
         <div className="text-white text-sm">
-          Welcome, <span className="text-lime font-semibold">{user?.username}</span>
+          Welcome, <span className="text-lime font-semibold">
+            {user?.firstName && user?.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user?.username}
+          </span>
         </div>
         <button
           onClick={logout}

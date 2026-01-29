@@ -60,7 +60,7 @@ class User {
   // Find user by ID
   static async findById(id) {
     const result = await pool.query(
-      'SELECT id, username, email, created_at FROM users WHERE id = $1',
+      'SELECT id, username, email, first_name, last_name, created_at FROM users WHERE id = $1',
       [id]
     );
     return result.rows[0];
