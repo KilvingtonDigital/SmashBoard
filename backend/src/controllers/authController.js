@@ -147,12 +147,19 @@ exports.forgotPassword = async (req, res) => {
       This link is valid for 1 hour.
     `;
 
-    await sendEmail({
+    const emailResult = await sendEmail({
       to: user.email,
       subject: 'SmashBoard Password Reset',
       text: message,
       html: `<p>You requested a password reset. Please click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link is valid for 1 hour.</p>`
     });
+
+    if (!emailResult.success) {
+      console.error('Email service failed:', emailResult.error);
+      return res.status(500).json({
+        error: `Email failed to send: ${emailResult.error.message || 'Unknown error'}. Check Railway logs.`
+      });
+    }
 
     res.json({ message: 'If that email exists, a reset link has been sent.' });
   } catch (error) {
