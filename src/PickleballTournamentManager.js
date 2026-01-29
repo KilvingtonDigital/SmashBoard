@@ -1071,34 +1071,78 @@ const generateKingOfCourtRound = (presentPlayers, courts, kotStats, currentRound
   const matches = [];
 
   if (separateBySkill && presentPlayers.length >= 8) {
-    const { groups: skillGroups } = separatePlayersBySkill(presentPlayers, 4);
+    const { groups: skillGroups } = separatePlayersBySkill(presentPlayers, courts);
 
     let globalCourtIndex = 1;
+    let allLeftovers = [];
 
     skillGroups.forEach(skillGroup => {
-      if (skillGroup.players.length >= 4) {
-        const groupCourts = Math.floor(skillGroup.players.length / 4);
-        const actualCourts = Math.min(groupCourts, courts - globalCourtIndex + 1);
+      // We initially allocate courts proportional to group size, but bounded by total availability
+      const groupCourts = Math.floor(skillGroup.players.length / 4);
+      const availableCourts = courts - globalCourtIndex + 1;
 
-        if (actualCourts > 0) {
-          console.log(`\n${skillGroup.label}: ${skillGroup.players.length} players, ${actualCourts} courts (starting at Court ${globalCourtIndex})`);
+      // We only assign what fits in the Remaining courts
+      const actualCourts = Math.min(groupCourts, availableCourts);
 
-          const groupMatches = generateKOTMatchesForGroup(
-            skillGroup.players,
-            updatedStats,
-            actualCourts,
-            globalCourtIndex,
-            currentRoundIndex,
-            previousRounds,
-            skillGroup.label,
-            actualCourts  // ADDED: Pass the number of courts in THIS hierarchy
-          );
+      if (actualCourts > 0) {
+        console.log(`\n${skillGroup.label}: ${skillGroup.players.length} players, ${actualCourts} courts (starting at Court ${globalCourtIndex})`);
 
-          matches.push(...groupMatches);
-          globalCourtIndex += groupMatches.length;
-        }
+        const groupMatches = generateKOTMatchesForGroup(
+          skillGroup.players,
+          updatedStats,
+          actualCourts,
+          globalCourtIndex,
+          currentRoundIndex,
+          previousRounds,
+          skillGroup.label,
+          actualCourts
+        );
+
+        matches.push(...groupMatches);
+        globalCourtIndex += groupMatches.length;
+
+        // Identify who didn't play in this group specific pairing
+        const playedIds = new Set();
+        groupMatches.forEach(m => {
+          if (m.player1) playedIds.add(m.player1.id);
+          if (m.player2) playedIds.add(m.player2.id);
+          if (m.team1) m.team1.forEach(p => playedIds.add(p.id));
+          if (m.team2) m.team2.forEach(p => playedIds.add(p.id));
+        });
+
+        skillGroup.players.forEach(p => {
+          if (!playedIds.has(p.id)) {
+            allLeftovers.push(p);
+          }
+        });
+      } else {
+        // No courts assigned, everyone is leftover
+        allLeftovers.push(...skillGroup.players);
       }
     });
+
+    // Handle Overflow / Mixed Skill Court
+    const remainingCourts = courts - (globalCourtIndex - 1);
+    if (remainingCourts > 0 && allLeftovers.length >= 4) {
+      console.log(`\nOverflow/Mixed: ${allLeftovers.length} players remaining, ${remainingCourts} courts available`);
+
+      // Calculate how many courts we can fill with leftovers
+      const overflowCourts = Math.min(Math.floor(allLeftovers.length / 4), remainingCourts);
+
+      if (overflowCourts > 0) {
+        const overflowMatches = generateKOTMatchesForGroup(
+          allLeftovers,
+          updatedStats,
+          overflowCourts,
+          globalCourtIndex,
+          currentRoundIndex,
+          previousRounds,
+          'Mixed (Overflow)',
+          overflowCourts
+        );
+        matches.push(...overflowMatches);
+      }
+    }
   } else {
     const groupMatches = generateKOTMatchesForGroup(
       presentPlayers,
