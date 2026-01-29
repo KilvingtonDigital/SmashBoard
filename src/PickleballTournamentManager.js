@@ -3073,7 +3073,7 @@ const PickleballTournamentManager = () => {
               🏓
             </div>
             <div>
-              <div className="text-base font-semibold text-brand-primary">SmashBoard</div>
+              <div className="text-base font-semibold text-brand-primary">DinkSync</div>
               <div className="text-xs text-brand-gray">
                 {tournamentType === 'king_of_court' ? 'King of Court Mode' : 'Round Robin Mode'}
               </div>
