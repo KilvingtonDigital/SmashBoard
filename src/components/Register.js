@@ -158,7 +158,13 @@ const Register = ({ onSwitchToLogin }) => {
                   className="w-full px-4 py-2 bg-black border border-gray rounded focus:outline-none focus:border-lime text-white pr-10"
                   placeholder="••••••••"
                 />
-                {/* No button needed here, it follows the main password toggle or can be separate. Usually following main is better UX or just one toggle for both if desired, but here we just reuse state or could add another. For simplicity, let's have one toggle control both or just rely on the first one. Let's start with one toggle controlling viewing. */}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 focus:outline-none"
+                >
+                  {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
+                </button>
               </div>
             </div>
 
