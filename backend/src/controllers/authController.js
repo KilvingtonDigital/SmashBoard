@@ -14,6 +14,12 @@ const generateToken = (user) => {
 // Register new user
 exports.register = async (req, res) => {
   try {
+    // Honeypot check - if hidden field 'website' is filled, it's a bot
+    if (req.body.website) {
+      console.warn(`🤖 Bot detected (Honeypot): ${req.body.email}`);
+      return res.status(400).json({ error: 'Registration failed' });
+    }
+
     // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

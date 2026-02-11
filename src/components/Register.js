@@ -21,6 +21,8 @@ const Register = ({ onSwitchToLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Honeypot field (hidden from users, visible to bots)
+  const [website, setWebsite] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,7 +45,8 @@ const Register = ({ onSwitchToLogin }) => {
 
     setLoading(true);
 
-    const result = await register(firstName, lastName, email, password);
+    // Pass the honeypot value ('website') to the register function
+    const result = await register(firstName, lastName, email, password, website);
 
     if (!result.success) {
       setError(result.error);
@@ -72,6 +75,20 @@ const Register = ({ onSwitchToLogin }) => {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Honeypot Field (Hidden) */}
+            <div className="hidden absolute opacity-0 -z-50 h-0 w-0 overflow-hidden">
+              <label htmlFor="website">Website</label>
+              <input
+                id="website"
+                type="text"
+                name="website"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-gray text-sm font-medium mb-2">
