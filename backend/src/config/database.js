@@ -3,7 +3,8 @@ require('dotenv').config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Force SSL with self-signed cert permission for internal Railway connections
+  ssl: false, // Disable SSL for internal network connection to prevent ETIMEDOUT
+  connectionTimeoutMillis: 5000 // Fail after 5 seconds instead of hanging
 });
 
 pool.on('connect', () => {
