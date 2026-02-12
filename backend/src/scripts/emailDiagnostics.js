@@ -10,13 +10,13 @@ const runDiagnostics = async () => {
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
     const port = process.env.SMTP_PORT || 587;
-    const secure = process.env.SMTP_SECURE === 'true';
+    const secure = process.env.SMTP_SECURE === 'true' || port == 465;
 
     console.log(`SMTP Host: ${host ? host : '❌ MISSING'}`);
     console.log(`SMTP User: ${user ? user : '❌ MISSING'}`);
     console.log(`SMTP Pass: ${pass ? '******** (Present)' : '❌ MISSING'}`);
     console.log(`SMTP Port: ${port}`);
-    console.log(`SMTP Secure: ${secure}`);
+    console.log(`SMTP Secure: ${secure} (Raw: ${process.env.SMTP_SECURE})`);
 
     if (!host || !user || !pass) {
         console.error('\n❌ CRITICAL: Missing SMTP Environment Variables!');
