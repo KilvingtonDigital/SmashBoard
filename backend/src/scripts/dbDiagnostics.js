@@ -37,9 +37,34 @@ const runDiagnostics = async () => {
 
     // Test 0: Public URL (Priority)
     if (publicUrl) {
-        await testConnection('PRIORITY: Public URL', {
+        console.log('\n--- PUBLIC URL TESTS ---');
+
+        // Variant A: Permissive SSL (Most likely)
+        await testConnection('Public A: Permissive SSL', {
             connectionString: publicUrl,
             ssl: { rejectUnauthorized: false },
+            connectionTimeoutMillis: 10000
+        });
+
+        // Variant B: No SSL
+        await testConnection('Public B: No SSL', {
+            connectionString: publicUrl,
+            ssl: false,
+            connectionTimeoutMillis: 10000
+        });
+
+        // Variant C: Strict SSL
+        await testConnection('Public C: Strict SSL', {
+            connectionString: publicUrl,
+            ssl: { rejectUnauthorized: true },
+            connectionTimeoutMillis: 10000
+        });
+
+        // Variant D: No SSL + Force IPv4
+        await testConnection('Public D: No SSL + Force IPv4', {
+            connectionString: publicUrl,
+            ssl: false,
+            family: 4, // Force IPv4
             connectionTimeoutMillis: 10000
         });
     } else {
