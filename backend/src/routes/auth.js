@@ -18,7 +18,7 @@ const registerValidation = [
   body('email')
     .trim()
     .isEmail()
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
     .withMessage('Invalid email address'),
   body('password')
     .isLength({ min: 6 })
@@ -29,7 +29,7 @@ const loginValidation = [
   body('email')
     .trim()
     .isEmail()
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
     .withMessage('Invalid email address'),
   body('password')
     .notEmpty()
