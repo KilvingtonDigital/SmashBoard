@@ -77,8 +77,16 @@ const runDiagnostics = async () => {
     });
 
     // Test 2: Internal Network (SSL False)
-    await testConnection('SSL Disabled (Internal)', {
+    await testConnection('Internal: SSL Disabled', {
         connectionString: process.env.DATABASE_URL,
+        ssl: false,
+        connectionTimeoutMillis: 5000
+    });
+
+    // Test 2b: Internal IPv6 Force
+    await testConnection('Internal: IPv6 Force', {
+        connectionString: process.env.DATABASE_URL,
+        family: 6, // Force IPv6
         ssl: false,
         connectionTimeoutMillis: 5000
     });
