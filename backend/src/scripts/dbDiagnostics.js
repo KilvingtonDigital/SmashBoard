@@ -7,18 +7,21 @@ const checkInternet = () => {
     return new Promise((resolve) => {
         const start = Date.now();
         const req = https.get('https://www.google.com', (res) => {
+            clearTimeout(timer);
             const time = Date.now() - start;
             console.log(`   ✅ Internet Access: OK (${res.statusCode}) - ${time}ms`);
             resolve(true);
         });
-        req.on('error', (e) => {
-            console.log(`   ❌ Internet Access: FAILED. Error: ${e.message}`);
-            resolve(false);
-        });
-        req.setTimeout(2000, () => {
-            if (req.destroyed) return; // Already finished?
+
+        const timer = setTimeout(() => {
             console.log('   ❌ Internet Access: TIMEOUT (2s)');
             req.abort();
+            resolve(false);
+        }, 2000);
+
+        req.on('error', (e) => {
+            clearTimeout(timer);
+            console.log(`   ❌ Internet Access: FAILED. Error: ${e.message}`);
             resolve(false);
         });
     });

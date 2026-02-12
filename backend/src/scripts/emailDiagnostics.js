@@ -30,7 +30,9 @@ const runDiagnostics = async () => {
             host,
             port,
             secure,
-            auth: { user, pass }
+            auth: { user, pass },
+            logger: true, // Log SMTP exchanges
+            debug: true   // Include debug info
         });
 
         console.log('🔄 Verifying connection...');
