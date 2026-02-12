@@ -1,6 +1,27 @@
 // DB Diagnostics - Forced Update: 21:24
 const { Client } = require('pg');
+const https = require('https');
 require('dotenv').config();
+
+const checkInternet = () => {
+    return new Promise((resolve) => {
+        const start = Date.now();
+        const req = https.get('https://www.google.com', (res) => {
+            const time = Date.now() - start;
+            console.log(`   ✅ Internet Access: OK (${res.statusCode}) - ${time}ms`);
+            resolve(true);
+        });
+        req.on('error', (e) => {
+            console.log(`   ❌ Internet Access: FAILED. Error: ${e.message}`);
+            resolve(false);
+        });
+        req.setTimeout(2000, () => {
+            console.log('   ❌ Internet Access: TIMEOUT (2s)');
+            req.abort();
+            resolve(false);
+        });
+    });
+};
 
 const testConnection = async (name, config) => {
     console.log(`\n🧪 Testing Config: ${name}`);
@@ -26,6 +47,9 @@ const runDiagnostics = async () => {
     console.log('========================================');
     console.log('🔍 DATABASE CONNECTION DIAGNOSTICS');
     console.log('========================================');
+
+    console.log('Checking Outbound Internet Access...');
+    await checkInternet();
 
     const publicUrl = process.env.DATABASE_PUBLIC_URL;
     const internalUrl = process.env.DATABASE_URL;
@@ -72,23 +96,24 @@ const runDiagnostics = async () => {
         console.log('⚠️ SKIPPING Public URL Test (Variable not set)');
     }
 
-    // Test 1: Standard / Default (Let pg decide)
-    await testConnection('Default (No Config)', {
+    // Test 1: Internal IPv6 Force (Priority Fix)
+    await testConnection('Internal: IPv6 Force', {
         connectionString: process.env.DATABASE_URL,
+        family: 6, // Force IPv6
+        ssl: false,
+        connectionTimeoutMillis: 5000
     });
 
-    // Test 2: Internal Network (SSL False)
+    // Test 2: Internal SSL Disabled
     await testConnection('Internal: SSL Disabled', {
         connectionString: process.env.DATABASE_URL,
         ssl: false,
         connectionTimeoutMillis: 5000
     });
 
-    // Test 2b: Internal IPv6 Force
-    await testConnection('Internal: IPv6 Force', {
+    // Test 3: Standard / Default (Let pg decide) - Note: This hangs for 2m without timeout
+    await testConnection('Default (No Config)', {
         connectionString: process.env.DATABASE_URL,
-        family: 6, // Force IPv6
-        ssl: false,
         connectionTimeoutMillis: 5000
     });
 
