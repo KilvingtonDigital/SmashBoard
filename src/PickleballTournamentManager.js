@@ -2708,6 +2708,26 @@ const PickleballTournamentManager = () => {
         if (presentPlayers.length < 4) return alert('Need at least 4 present players');
         newRound = generateRoundRobinRound(presentPlayers, courts, playerStats, currentRound, separateBySkill, matchFormat);
       }
+
+      if (newRound && newRound.length > 0) {
+        // Auto-assign Round Robin matches to courts
+        setCourtStates(prev => {
+          const updated = prev.map(c => ({ ...c })); // Deep copy to be safe
+          newRound.forEach((match) => {
+            const courtIdx = updated.findIndex(c => c.courtNumber === match.court);
+            if (courtIdx !== -1) {
+              updated[courtIdx] = {
+                ...updated[courtIdx],
+                status: 'playing',
+                currentMatch: match
+              };
+            }
+          });
+          return updated;
+        });
+      } else {
+        return alert('Unable to generate balanced matches with current players. Try clearing constraints.');
+      }
     } else if (tournamentType === 'king_of_court') {
       if (presentPlayers.length < 4) return alert('Need at least 4 present players');
 
