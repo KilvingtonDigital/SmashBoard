@@ -139,7 +139,9 @@ exports.updateProfile = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
+    console.log(`[DEBUG] Forgot Password requested for: ${email}`);
     const user = await User.findByEmail(email);
+    console.log(`[DEBUG] User found in DB: ${user ? 'YES' : 'NO'}`);
 
     if (!user) {
       // Security best practice: Don't reveal if user exists
