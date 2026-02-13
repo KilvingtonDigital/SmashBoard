@@ -811,7 +811,7 @@ const generateSinglesRound = (presentPlayers, courts, playerStats, currentRoundI
         status: 'pending',
         winner: null,
         gameFormat: 'singles',
-        matchFormat: matchFormat
+        matchFormat: (typeof matchFormat !== 'undefined') ? matchFormat : 'single_match'
       });
     }
   }
@@ -947,7 +947,7 @@ const generateTeamedDoublesRound = (teams, courts, teamStats, currentRoundIndex,
           status: 'pending',
           winner: null,
           gameFormat: 'teamed_doubles',
-          matchFormat: matchFormat
+          matchFormat: (typeof matchFormat !== 'undefined') ? matchFormat : 'single_match'
         });
 
         // Remove used teams from remaining
