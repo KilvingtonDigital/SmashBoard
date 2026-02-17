@@ -100,7 +100,8 @@ const toCSV = (results) => {
     'round', 'court', 'court_level', 'game_format',
     't1_p1', 't1_p1_rating', 't1_p2', 't1_p2_rating',
     't2_p1', 't2_p1_rating', 't2_p2', 't2_p2_rating',
-    'match_format', 'games_won_t1', 'games_won_t2',
+    't2_p1', 't2_p1_rating', 't2_p2', 't2_p2_rating',
+    'match_format', 'score1', 'score2', 'games_won_t1', 'games_won_t2',
     'game1_t1', 'game1_t2', 'game2_t1', 'game2_t2', 'game3_t1', 'game3_t2',
     'winner', 'points_awarded', 'start_time', 'end_time', 'duration_minutes'
   ];
@@ -136,6 +137,7 @@ const toCSV = (results) => {
       m.team2?.[1]?.name || '',
       m.team2?.[1]?.rating || '',
       m.matchFormat || 'single_match',
+      m.score1 || '', m.score2 || '',
       gamesWonT1, gamesWonT2,
       m.game1Score1 || '', m.game1Score2 || '',
       m.game2Score1 || '', m.game2Score2 || '',
