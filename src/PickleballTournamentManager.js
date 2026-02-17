@@ -441,7 +441,10 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
           groupCourts,
           courtIndex,
           currentRoundIndex,
-          skillGroup.label
+          courtIndex,
+          currentRoundIndex,
+          skillGroup.label,
+          matchFormat
         );
         matches.push(...groupMatches);
         courtIndex += groupMatches.length;
@@ -469,7 +472,9 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
           remainingCourts,
           courtIndex,
           currentRoundIndex,
-          'Mixed (Overflow)'
+          currentRoundIndex,
+          'Mixed (Overflow)',
+          matchFormat
         );
 
         matches.push(...extraMatches);
@@ -478,7 +483,7 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
     }
 
   } else {
-    matches = generateMatchesForGroup(presentPlayers, updatedStats, courts, 1, currentRoundIndex, 'Mixed');
+    matches = generateMatchesForGroup(presentPlayers, updatedStats, courts, 1, currentRoundIndex, 'Mixed', matchFormat);
   }
 
   updatePlayerStatsForRound(updatedStats, presentPlayers, matches, currentRoundIndex);
@@ -499,7 +504,7 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
   return matches;
 };
 
-const generateMatchesForGroup = (groupPlayers, playerStats, maxCourts, startingCourtIndex, roundIndex, groupType) => {
+const generateMatchesForGroup = (groupPlayers, playerStats, maxCourts, startingCourtIndex, roundIndex, groupType, matchFormat) => {
   console.log(`Generating ${groupType} matches for ${groupPlayers.length} players`);
 
   const maxPlayersPerRound = maxCourts * 4;
@@ -508,7 +513,7 @@ const generateMatchesForGroup = (groupPlayers, playerStats, maxCourts, startingC
   console.log(`${groupType} - Playing: ${playersThisRound.map(p => `${p.name}(${p.rating})`).join(', ')}`);
   console.log(`${groupType} - Sitting out: ${groupPlayers.filter(p => !playersThisRound.includes(p)).map(p => `${p.name}(${p.rating})`).join(', ')}`);
 
-  return createBalancedMatches(playersThisRound, playerStats, maxCourts, startingCourtIndex, roundIndex, groupType);
+  return createBalancedMatches(playersThisRound, playerStats, maxCourts, startingCourtIndex, roundIndex, groupType, matchFormat);
 };
 
 const selectPlayersForRound = (allPlayers, playerStats, maxPlayers, roundIdx) => {
@@ -543,7 +548,7 @@ const selectPlayersForRound = (allPlayers, playerStats, maxPlayers, roundIdx) =>
     .map(item => item.player);
 };
 
-const createBalancedMatches = (playersThisRound, playerStats, maxCourts, startingCourtIndex, roundIdx, groupType) => {
+const createBalancedMatches = (playersThisRound, playerStats, maxCourts, startingCourtIndex, roundIdx, groupType, matchFormat) => {
   const matches = [];
   const usedPlayers = new Set();
   const availablePlayers = [...playersThisRound];
