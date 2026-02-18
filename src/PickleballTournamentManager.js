@@ -2162,7 +2162,7 @@ const PickleballTournamentManager = () => {
   };
 
   // Court Flow Management Functions
-  const assignMatchToCourt = (courtNumber) => {
+  const assignMatchToCourt = (courtNumber, isManual = false) => {
     // Cooldown check (prevent accidental double-click after complete match)
     const now = Date.now();
     if (now - lastActionRef.current < 1000) {
@@ -2170,6 +2170,14 @@ const PickleballTournamentManager = () => {
       return;
     }
     lastActionRef.current = now;
+
+    // Guard against auto-assignment
+    if (!isManual) {
+      console.warn(`[Blocked] Automatic match assignment attempted on Court ${courtNumber}. Manual assignment is required.`);
+      return;
+    }
+
+    console.log(`[Manual] Assigning match to Court ${courtNumber}`);
 
     // Safety check: Don't assign if there's already a match
     const court = courtStates.find(c => c.courtNumber === courtNumber);
@@ -2519,7 +2527,7 @@ const PickleballTournamentManager = () => {
     }
 
     const match = court.currentMatch;
-    console.log(`Completing match on court ${courtNumber}:`, match);
+    console.log(`[Complete] Completing match on court ${courtNumber}:`, match);
 
     // Set cooldown to prevent accidental clicks on the "Assign Match" button that appears
     lastActionRef.current = Date.now();
@@ -3827,7 +3835,7 @@ const PickleballTournamentManager = () => {
                           {court.status === 'ready' && !court.currentMatch && (
                             <Button
                               className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 text-xs py-1"
-                              onClick={() => assignMatchToCourt(court.courtNumber)}
+                              onClick={() => assignMatchToCourt(court.courtNumber, true)}
                             >
                               Assign Match
                             </Button>
