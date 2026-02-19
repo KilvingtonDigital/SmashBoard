@@ -415,7 +415,7 @@ const validateFairness = (playerStats, presentPlayers, currentRound) => {
   return difference <= 1;
 };
 
-const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRoundIndex, separateBySkill = true, matchFormat = 'single_match', preferMixedDoubles = false, femaleRestInterval = 2) => {
+const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRoundIndex, separateBySkill = true, matchFormat = 'single_match', preferMixedDoubles = false, femaleRestInterval = 2, previousRounds = []) => {
   console.log(`\n=== GENERATING ROUND ROBIN ROUND ${currentRoundIndex + 1} ===`);
   console.log(`Present players: ${presentPlayers.length}, preferMixed: ${preferMixedDoubles}, femaleRestInterval: ${femaleRestInterval}`);
 
@@ -459,11 +459,8 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
     });
 
     // ── GLOBAL FAIRNESS SWEEP ──────────────────────────────────────────────
-    // After skill groups produce matches, find players who are sitting out
-    // disproportionately and force-swap them into a match, replacing the
-    // currently-scheduled player with the fewest total sit-outs.
-    // This prevents players like Fili (alone in a high skill tier) from
-    // being continuously excluded when their merged group fills courts first.
+    // Compute sit-outs directly from previousRounds (ground truth) to avoid
+    // any accumulated-stats bugs. This is fully independent of playerStats.
     {
       const playingIds = new Set();
       matches.forEach(match => {
@@ -473,21 +470,34 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
 
       const sittingOut = presentPlayers.filter(p => !playingIds.has(p.id));
 
-      if (sittingOut.length > 0) {
-        // Calculate average rounds sat out among all players
-        const totalSatOut = presentPlayers.reduce((sum, p) => {
-          const s = updatedStats[p.id] || {};
-          return sum + (s.roundsSatOut || 0);
-        }, 0);
-        const avgSatOut = totalSatOut / presentPlayers.length;
+      if (sittingOut.length > 0 && previousRounds.length > 0) {
+        // ── Ground-truth sit-out count per player ──
+        const groundTruthSatOut = {};
+        presentPlayers.forEach(p => { groundTruthSatOut[p.id] = 0; });
+        previousRounds.forEach(round => {
+          if (round.length === 0) return;
+          const inRound = new Set();
+          round.forEach(m => {
+            m.team1?.forEach(p => inRound.add(p.id));
+            m.team2?.forEach(p => inRound.add(p.id));
+          });
+          presentPlayers.forEach(p => {
+            if (!inRound.has(p.id)) groundTruthSatOut[p.id] = (groundTruthSatOut[p.id] || 0) + 1;
+          });
+        });
 
-        // Players who have sat out materially more than average (> avg + 1)
-        // Threshold of +1 means the swap fires as soon as someone is 1+ sit-out
-        // above the group average — caps individual sit-outs at 2 in most cases
+        // Average and max-allowed sit-outs
+        const totalSatOut = presentPlayers.reduce((sum, p) => sum + (groundTruthSatOut[p.id] || 0), 0);
+        const avgSatOut = totalSatOut / presentPlayers.length;
+        // Cap: no player sits out more than ceil(avg) + 1 rounds (min threshold = 2)
+        const maxAllowed = Math.max(2, Math.ceil(avgSatOut) + 1);
+
         const fairnessCandidates = sittingOut
-          .map(p => ({ player: p, satOut: (updatedStats[p.id] || {}).roundsSatOut || 0 }))
-          .filter(({ satOut }) => satOut > avgSatOut + 1)
+          .map(p => ({ player: p, satOut: groundTruthSatOut[p.id] || 0 }))
+          .filter(({ satOut }) => satOut >= maxAllowed)
           .sort((a, b) => b.satOut - a.satOut); // highest sit-out first
+
+        console.log(`[Fairness] avg=${avgSatOut.toFixed(2)} maxAllowed=${maxAllowed} candidates=${fairnessCandidates.map(c => `${c.player.name}(${c.satOut})`).join(', ')}`);
 
         fairnessCandidates.forEach(({ player: needsIn }) => {
           // ── Rating-aware swap: find the best player to replace ────────────
@@ -3072,7 +3082,7 @@ const PickleballTournamentManager = () => {
               roundsSatOut: derived.roundsSatOut,      // Use accurate derived sat-out count
             };
           });
-          newRound = generateRoundRobinRound(presentPlayers, courts, schedulingStats, currentRound, separateBySkill, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval);
+          newRound = generateRoundRobinRound(presentPlayers, courts, schedulingStats, currentRound, separateBySkill, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval, rounds);
         }
 
         if (newRound && newRound.length > 0) {
