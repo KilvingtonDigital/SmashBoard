@@ -2054,36 +2054,107 @@ const PickleballTournamentManager = () => {
     return teams.filter(t => !getTeamsOnCourt.has(t.id));
   }, [teams, getTeamsOnCourt]);
 
+  // Derive accurate player stats directly from rounds history
+  // This is immune to double-counting bugs in the imperative playerStats accumulator
+  const derivedPlayerStats = useMemo(() => {
+    const stats = {};
+    // Count matches played per player from rounds history
+    rounds.forEach(round => {
+      round.forEach(match => {
+        const playerIds = [];
+        if (match.gameFormat === 'singles') {
+          if (match.player1) playerIds.push(match.player1.id);
+          if (match.player2) playerIds.push(match.player2.id);
+        } else {
+          match.team1?.forEach(p => playerIds.push(p.id));
+          match.team2?.forEach(p => playerIds.push(p.id));
+        }
+        playerIds.forEach(id => {
+          if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
+          stats[id].matchesPlayed += 1;
+        });
+      });
+    });
+    // Derive sat-out count: number of rounds where a player was NOT in any match
+    rounds.forEach(round => {
+      const playersInRound = new Set();
+      round.forEach(match => {
+        if (match.gameFormat === 'singles') {
+          if (match.player1) playersInRound.add(match.player1.id);
+          if (match.player2) playersInRound.add(match.player2.id);
+        } else {
+          match.team1?.forEach(p => playersInRound.add(p.id));
+          match.team2?.forEach(p => playersInRound.add(p.id));
+        }
+      });
+      // Any present player not in this round was sitting out
+      // We use a heuristic: if a round has >= 1 match, any player not in a match sat out
+      if (round.length > 0) {
+        const allPlayerIds = new Set([
+          ...rounds.flatMap(r => r.flatMap(m => {
+            if (m.gameFormat === 'singles') return [m.player1?.id, m.player2?.id].filter(Boolean);
+            return [...(m.team1 || []), ...(m.team2 || [])].map(p => p.id);
+          }))
+        ]);
+        allPlayerIds.forEach(id => {
+          if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
+          if (!playersInRound.has(id)) {
+            stats[id].roundsSatOut += 1;
+          }
+        });
+      }
+    });
+    return stats;
+  }, [rounds]);
+
+  // Derive accurate team stats from rounds history
+  const derivedTeamStats = useMemo(() => {
+    const stats = {};
+    rounds.forEach(round => {
+      const teamsInRound = new Set();
+      round.forEach(match => {
+        if (match.team1Id) teamsInRound.add(match.team1Id);
+        if (match.team2Id) teamsInRound.add(match.team2Id);
+        if (match.team1Id) {
+          if (!stats[match.team1Id]) stats[match.team1Id] = { matchesPlayed: 0, roundsSatOut: 0 };
+          stats[match.team1Id].matchesPlayed += 1;
+        }
+        if (match.team2Id) {
+          if (!stats[match.team2Id]) stats[match.team2Id] = { matchesPlayed: 0, roundsSatOut: 0 };
+          stats[match.team2Id].matchesPlayed += 1;
+        }
+      });
+    });
+    return stats;
+  }, [rounds]);
+
   // Get next-up queue based on fairness
   const getNextUpQueue = useMemo(() => {
     if (tournamentType === 'round_robin') {
       if (gameFormat === 'singles') {
-        // Singles: prioritize players by sat-out rounds
         return availablePlayers
           .map(p => {
-            const stats = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0 };
-            return { ...p, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+            const stats = derivedPlayerStats[p.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            return { ...p, roundsPlayed: stats.matchesPlayed, roundsSatOut: stats.roundsSatOut, priority: stats.roundsSatOut * 100 + (10 - stats.matchesPlayed) };
           })
           .sort((a, b) => b.priority - a.priority);
       } else if (gameFormat === 'teamed_doubles') {
-        // Teamed doubles: prioritize teams by sat-out rounds
         return availableTeams
           .map(t => {
-            const stats = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0 };
-            return { ...t, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+            const stats = derivedTeamStats[t.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            return { ...t, roundsPlayed: stats.matchesPlayed, roundsSatOut: stats.roundsSatOut, priority: stats.roundsSatOut * 100 + (10 - stats.matchesPlayed) };
           })
           .sort((a, b) => b.priority - a.priority);
       } else {
-        // Regular doubles: prioritize players by sat-out rounds
+        // Regular doubles: prioritize players by sat-out rounds, then fewer matches
         return availablePlayers
           .map(p => {
-            const stats = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0 };
-            return { ...p, ...stats, priority: stats.roundsSatOut * 100 + (10 - stats.roundsPlayed) };
+            const stats = derivedPlayerStats[p.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            return { ...p, roundsPlayed: stats.matchesPlayed, roundsSatOut: stats.roundsSatOut, priority: stats.roundsSatOut * 100 + (10 - stats.matchesPlayed) };
           })
           .sort((a, b) => b.priority - a.priority);
       }
     } else if (tournamentType === 'king_of_court') {
-      // King of Court: show available players sorted by KOT stats
       return availablePlayers
         .map(p => {
           const stats = kotStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0, totalPoints: 0 };
@@ -2092,7 +2163,7 @@ const PickleballTournamentManager = () => {
         .sort((a, b) => b.roundsSatOut - a.roundsSatOut || a.roundsPlayed - b.roundsPlayed);
     }
     return [];
-  }, [tournamentType, gameFormat, availablePlayers, availableTeams, playerStats, teamStats, kotStats]);
+  }, [tournamentType, gameFormat, availablePlayers, availableTeams, derivedPlayerStats, derivedTeamStats, kotStats]);
 
   const addPlayer = async () => {
     const name = form.name.trim();
@@ -3225,15 +3296,15 @@ const PickleballTournamentManager = () => {
         return stats;
       }
     } else {
-      if (Object.keys(playerStats).length === 0) return null;
+      if (Object.keys(derivedPlayerStats).length === 0 && rounds.length === 0) return null;
 
       const stats = presentPlayers.map(player => {
-        const stat = playerStats[player.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        const stat = derivedPlayerStats[player.id] || { matchesPlayed: 0, roundsSatOut: 0 };
         return {
           ...player,
-          roundsPlayed: stat.roundsPlayed,
+          roundsPlayed: stat.matchesPlayed,
           roundsSatOut: stat.roundsSatOut,
-          totalRounds: stat.roundsPlayed + stat.roundsSatOut
+          totalRounds: stat.matchesPlayed + stat.roundsSatOut
         };
       }).sort((a, b) => a.roundsSatOut - b.roundsSatOut || b.roundsPlayed - a.roundsPlayed);
 
