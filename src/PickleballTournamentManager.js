@@ -4089,7 +4089,7 @@ const PickleballTournamentManager = () => {
             </h3>
             {((tournamentType === 'king_of_court' && gameFormat === 'teamed_doubles' && Object.keys(kotTeamStats).length === 0) ||
               (tournamentType === 'king_of_court' && gameFormat !== 'teamed_doubles' && Object.keys(kotStats).length === 0) ||
-              (tournamentType === 'round_robin' && Object.keys(playerStats).length === 0)) ? (
+              (tournamentType === 'round_robin' && rounds.length === 0)) ? (
               <p className="text-brand-primary/70">No rounds generated yet.</p>
             ) : (
               <div className="overflow-x-auto">
