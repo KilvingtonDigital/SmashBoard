@@ -2232,19 +2232,19 @@ const PickleballTournamentManager = () => {
           match.team2?.forEach(p => playersInRound.add(p.id));
         }
       });
-      // Sat-out: any PRESENT player not in this round sat out
-      // Use presentPlayers as the full universe (not just players who appeared in any match)
       if (round.length > 0) {
-        presentPlayers.forEach(p => {
-          if (!stats[p.id]) stats[p.id] = { matchesPlayed: 0, roundsSatOut: 0 };
-          if (!playersInRound.has(p.id)) {
-            stats[p.id].roundsSatOut += 1;
+        // Only score players who have already appeared in at least one match
+        // (meaning they were present when this or a prior round was generated)
+        everPlayedIds.forEach(id => {
+          if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
+          if (!playersInRound.has(id)) {
+            stats[id].roundsSatOut += 1;
           }
         });
       }
     });
     return stats;
-  }, [rounds, presentPlayers]);
+  }, [rounds]); // removed presentPlayers dependency — sat-out universe is now match-history only
 
   // Derive accurate team stats from rounds history
   const derivedTeamStats = useMemo(() => {
