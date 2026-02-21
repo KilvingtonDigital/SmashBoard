@@ -2046,8 +2046,6 @@ const PickleballTournamentManager = () => {
   const [bulkText, setBulkText] = useState('');
   const [addNote, setAddNote] = useState(null);
 
-  // Cooldown ref to prevent accidental double-clicks (Complete -> Assign)
-  const lastActionRef = useRef(0);
 
   const [courts, setCourts] = useState(4);
   const [sessionMinutes, setSessionMinutes] = useState(120);
@@ -2407,14 +2405,6 @@ const PickleballTournamentManager = () => {
 
   // Court Flow Management Functions
   const assignMatchToCourt = (courtNumber, isManual = false) => {
-    // Cooldown check (prevent accidental double-click after complete match)
-    const now = Date.now();
-    if (now - lastActionRef.current < 1000) {
-      console.log('Ignoring assignment request due to cooldown');
-      return;
-    }
-    lastActionRef.current = now;
-
     // Guard against auto-assignment
     if (!isManual) {
       console.warn(`[Blocked] Automatic match assignment attempted on Court ${courtNumber}. Manual assignment is required.`);
@@ -2814,9 +2804,6 @@ const PickleballTournamentManager = () => {
 
     const match = court.currentMatch;
     console.log(`[Complete] Completing match on court ${courtNumber} -> ${nextStatus}:`, match);
-
-    // Set cooldown to prevent accidental clicks
-    lastActionRef.current = Date.now();
 
     // Free up the court and set next status (atomic update)
     setCourtStates(prev => prev.map(c =>
