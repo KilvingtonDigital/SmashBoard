@@ -3231,56 +3231,7 @@ const PickleballTournamentManager = () => {
     );
   };
 
-  // Calculate winner for best of 3 format
-  const calculateBestOf3Winner = (m) => {
-    console.log('Calculating best of 3 winner for match:', {
-      game1: `${m.game1Score1}-${m.game1Score2}`,
-      game2: `${m.game2Score1}-${m.game2Score2}`,
-      game3: `${m.game3Score1}-${m.game3Score2}`
-    });
 
-    let side1Wins = 0;
-    let side2Wins = 0;
-
-    // Game 1 — use null check so 0 is a valid score
-    const g1s1 = m.game1Score1 === '' || m.game1Score1 == null ? null : Number(m.game1Score1);
-    const g1s2 = m.game1Score2 === '' || m.game1Score2 == null ? null : Number(m.game1Score2);
-    if (g1s1 !== null && g1s2 !== null) {
-      if (g1s1 > g1s2) { side1Wins++; console.log(`Game 1: Team 1 wins (${g1s1}-${g1s2})`); }
-      else if (g1s2 > g1s1) { side2Wins++; console.log(`Game 1: Team 2 wins (${g1s1}-${g1s2})`); }
-    }
-
-    // Game 2 — use null check so 0 is a valid score
-    const g2s1 = m.game2Score1 === '' || m.game2Score1 == null ? null : Number(m.game2Score1);
-    const g2s2 = m.game2Score2 === '' || m.game2Score2 == null ? null : Number(m.game2Score2);
-    if (g2s1 !== null && g2s2 !== null) {
-      if (g2s1 > g2s2) { side1Wins++; console.log(`Game 2: Team 1 wins (${g2s1}-${g2s2})`); }
-      else if (g2s2 > g2s1) { side2Wins++; console.log(`Game 2: Team 2 wins (${g2s1}-${g2s2})`); }
-    }
-
-    // Game 3 (if needed) — use null check so 0 is a valid score
-    if (side1Wins < 2 && side2Wins < 2) {
-      const g3s1 = m.game3Score1 === '' || m.game3Score1 == null ? null : Number(m.game3Score1);
-      const g3s2 = m.game3Score2 === '' || m.game3Score2 == null ? null : Number(m.game3Score2);
-      if (g3s1 !== null && g3s2 !== null) {
-        if (g3s1 > g3s2) { side1Wins++; console.log(`Game 3: Team 1 wins (${g3s1}-${g3s2})`); }
-        else if (g3s2 > g3s1) { side2Wins++; console.log(`Game 3: Team 2 wins (${g3s1}-${g3s2})`); }
-      }
-    }
-
-    console.log(`Total: Team 1 won ${side1Wins} games, Team 2 won ${side2Wins} games`);
-
-    if (side1Wins >= 2) {
-      console.log('Winner: Team 1');
-      return 1;
-    }
-    if (side2Wins >= 2) {
-      console.log('Winner: Team 2');
-      return 2;
-    }
-    console.log('No winner yet');
-    return null; // No winner yet
-  };
 
   const setWinner = (m, side) => {
     m.winner = side === 1 ? 'team1' : 'team2';
@@ -4513,31 +4464,7 @@ const PickleballTournamentManager = () => {
                                   {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
                                 </Button>
                               </div>
-                              {m.matchFormat === 'best_of_3' && (
-                                <Button
-                                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 text-sm"
-                                  onClick={() => {
-                                    setRounds((prev) => {
-                                      const newRounds = prev.map((r) => r.map((match) => ({ ...match })));
-                                      const match = newRounds[rIdx][i];
 
-                                      // Calculate winner from fresh state
-                                      const winner = calculateBestOf3Winner(match);
-                                      console.log('Setting winner to:', winner === 1 ? 'team1' : winner === 2 ? 'team2' : 'none');
-
-                                      if (winner) {
-                                        setWinner(match, winner);
-                                        return newRounds;
-                                      } else {
-                                        alert('Please enter scores for at least 2 games to determine a winner.');
-                                        return prev; // Don't update if no winner
-                                      }
-                                    });
-                                  }}
-                                >
-                                  Submit Scores
-                                </Button>
-                              )}
                             </div>
                           ) : (
                             <div className="flex flex-col gap-1">
