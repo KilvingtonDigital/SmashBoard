@@ -40,6 +40,14 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
 
--- MIGRATION: Add Pasword Reset columns
+-- MIGRATION: Add Password Reset columns
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash VARCHAR(255);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP;
+
+-- MIGRATION: Add active session flag to tournaments
+ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS is_active_session BOOLEAN DEFAULT FALSE;
+
+-- MIGRATION: Ensure only one active session per user (partial unique index)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_active_session_per_user
+  ON tournaments (user_id)
+  WHERE is_active_session = TRUE;

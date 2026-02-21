@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import InstallPrompt from './InstallPrompt';
 import { useAuth } from './contexts/AuthContext';
 import { useAPI } from './hooks/useAPI';
+import { useSessionSync } from './hooks/useSessionSync';
 
 // Version 3.2 - King of Court implementation + Round Robin
 
@@ -2034,6 +2035,7 @@ const generateBalancedKOTTeams = (players) => {
 const PickleballTournamentManager = () => {
   const { user } = useAuth();
   const api = useAPI();
+  const { loadSession, saveSession, clearSession } = useSessionSync();
   const [players, setPlayers] = useState([]);
   const [form, setForm] = useState({ name: '', rating: '', gender: 'male' });
   const [bulkText, setBulkText] = useState('');
@@ -2067,39 +2069,69 @@ const PickleballTournamentManager = () => {
   const [locked, setLocked] = useState(false);
   const [tournamentName, setTournamentName] = useState('');
 
-  // Restore session from localStorage on mount
+  // Restore session on mount — backend first, localStorage as fallback
   useEffect(() => {
-    const raw = localStorage.getItem('pb_session');
-    if (!raw) return;
-    try {
-      const snap = JSON.parse(raw);
-      if (snap.rounds?.length) {
-        if (snap.players) setPlayers(snap.players);
-        if (snap.rounds) setRounds(snap.rounds);
-        if (snap.playerStats) setPlayerStats(snap.playerStats);
-        if (snap.kotStats) setKotStats(snap.kotStats);
-        if (snap.teamStats) setTeamStats(snap.teamStats);
-        if (snap.teams) setTeams(snap.teams);
-        if (typeof snap.currentRound === 'number') setCurrentRound(snap.currentRound);
-        if (snap.locked) setLocked(snap.locked);
-        if (snap.tournamentName) setTournamentName(snap.tournamentName);
-        if (snap.meta) {
-          if (snap.meta.courts) setCourts(snap.meta.courts);
-          if (snap.meta.sessionMinutes) setSessionMinutes(snap.meta.sessionMinutes);
-          if (snap.meta.minutesPerRound) setMinutesPerRound(snap.meta.minutesPerRound);
-          if (snap.meta.tournamentType) setTournamentType(snap.meta.tournamentType);
-          if (snap.meta.gameFormat) setGameFormat(snap.meta.gameFormat);
-          if (snap.meta.matchFormat) setMatchFormat(snap.meta.matchFormat);
-          if (typeof snap.meta.separateBySkill === 'boolean') setSeparateBySkill(snap.meta.separateBySkill);
+    const restoreSession = async () => {
+      // 1. Try backend first (cloud session — survives refresh & works across devices)
+      const cloudSnap = await loadSession();
+      if (cloudSnap && cloudSnap.rounds?.length) {
+        if (cloudSnap.players) setPlayers(cloudSnap.players);
+        if (cloudSnap.rounds) setRounds(cloudSnap.rounds);
+        if (cloudSnap.playerStats) setPlayerStats(cloudSnap.playerStats);
+        if (cloudSnap.kotStats) setKotStats(cloudSnap.kotStats);
+        if (cloudSnap.teamStats) setTeamStats(cloudSnap.teamStats);
+        if (cloudSnap.teams) setTeams(cloudSnap.teams);
+        if (typeof cloudSnap.currentRound === 'number') setCurrentRound(cloudSnap.currentRound);
+        if (cloudSnap.locked) setLocked(cloudSnap.locked);
+        if (cloudSnap.tournamentName) setTournamentName(cloudSnap.tournamentName);
+        if (cloudSnap.meta) {
+          if (cloudSnap.meta.courts) setCourts(cloudSnap.meta.courts);
+          if (cloudSnap.meta.sessionMinutes) setSessionMinutes(cloudSnap.meta.sessionMinutes);
+          if (cloudSnap.meta.minutesPerRound) setMinutesPerRound(cloudSnap.meta.minutesPerRound);
+          if (cloudSnap.meta.tournamentType) setTournamentType(cloudSnap.meta.tournamentType);
+          if (cloudSnap.meta.gameFormat) setGameFormat(cloudSnap.meta.gameFormat);
+          if (cloudSnap.meta.matchFormat) setMatchFormat(cloudSnap.meta.matchFormat);
+          if (typeof cloudSnap.meta.separateBySkill === 'boolean') setSeparateBySkill(cloudSnap.meta.separateBySkill);
         }
-        // Restore court states — mark any in-progress matches back to playing
-        if (snap.courtStates) setCourtStates(snap.courtStates);
+        if (cloudSnap.courtStates) setCourtStates(cloudSnap.courtStates);
         setTab('schedule');
-        console.log('[Session] Restored session from localStorage:', snap.rounds.length, 'rounds');
+        console.log('[Session] Restored session from cloud:', cloudSnap.rounds.length, 'rounds');
+        return; // Cloud wins — skip localStorage
       }
-    } catch (e) {
-      console.warn('[Session] Failed to restore session from localStorage:', e);
-    }
+
+      // 2. Fallback: localStorage (existing behaviour)
+      const raw = localStorage.getItem('pb_session');
+      if (!raw) return;
+      try {
+        const snap = JSON.parse(raw);
+        if (snap.rounds?.length) {
+          if (snap.players) setPlayers(snap.players);
+          if (snap.rounds) setRounds(snap.rounds);
+          if (snap.playerStats) setPlayerStats(snap.playerStats);
+          if (snap.kotStats) setKotStats(snap.kotStats);
+          if (snap.teamStats) setTeamStats(snap.teamStats);
+          if (snap.teams) setTeams(snap.teams);
+          if (typeof snap.currentRound === 'number') setCurrentRound(snap.currentRound);
+          if (snap.locked) setLocked(snap.locked);
+          if (snap.tournamentName) setTournamentName(snap.tournamentName);
+          if (snap.meta) {
+            if (snap.meta.courts) setCourts(snap.meta.courts);
+            if (snap.meta.sessionMinutes) setSessionMinutes(snap.meta.sessionMinutes);
+            if (snap.meta.minutesPerRound) setMinutesPerRound(snap.meta.minutesPerRound);
+            if (snap.meta.tournamentType) setTournamentType(snap.meta.tournamentType);
+            if (snap.meta.gameFormat) setGameFormat(snap.meta.gameFormat);
+            if (snap.meta.matchFormat) setMatchFormat(snap.meta.matchFormat);
+            if (typeof snap.meta.separateBySkill === 'boolean') setSeparateBySkill(snap.meta.separateBySkill);
+          }
+          if (snap.courtStates) setCourtStates(snap.courtStates);
+          setTab('schedule');
+          console.log('[Session] Restored session from localStorage:', snap.rounds.length, 'rounds');
+        }
+      } catch (e) {
+        console.warn('[Session] Failed to restore session from localStorage:', e);
+      }
+    };
+    restoreSession();
   }, []); // eslint-disable-line
 
   // Fetch roster from DB on login
@@ -2153,7 +2185,16 @@ const PickleballTournamentManager = () => {
       locked
     };
     localStorage.setItem('pb_session', JSON.stringify(snapshot));
-  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, locked, tournamentName]);
+    // Also save to cloud (debounced 3s) so other devices / refreshes pick it up
+    if (rounds.length > 0) {
+      saveSession({
+        ...snapshot,
+        tournamentName: tournamentName || 'Active Session',
+        tournamentType: tournamentType || 'round_robin',
+        numCourts: courts
+      });
+    }
+  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, locked, tournamentName]); // eslint-disable-line
 
   useEffect(() => {
     const handler = (e) => {
@@ -3299,6 +3340,9 @@ const PickleballTournamentManager = () => {
     setKotAutoTeams([]);
     setTeamStats({});
     setLocked(false);
+    // Clear from cloud so a refresh or other device starts fresh
+    clearSession();
+    localStorage.removeItem('pb_session');
   };
 
   const updateScore = (rIdx, mIdx, which, raw) => {

@@ -6,6 +6,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const tournamentRoutes = require('./routes/tournaments');
 const playerRoutes = require('./routes/players');
+const sessionRoutes = require('./routes/session');
 
 const migrate = require('./config/migrate');
 
@@ -50,6 +51,7 @@ const authLimiter = rateLimit({
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/players', playerRoutes);
+app.use('/api/session', sessionRoutes);
 
 // 404 handler
 app.use((req, res) => {
