@@ -2229,7 +2229,9 @@ const PickleballTournamentManager = () => {
         });
       });
     });
-    // Derive sat-out count: number of rounds where a player was NOT in any match
+    // Derive sat-out count: only for players who have already appeared in at least one match.
+    // Declaring here (after the first forEach built `stats`) so all match participants are captured.
+    const everPlayedIds = new Set(Object.keys(stats));
     rounds.forEach(round => {
       const playersInRound = new Set();
       round.forEach(match => {
