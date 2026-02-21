@@ -518,7 +518,7 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
       });
       const totalSatOut = presentPlayers.reduce((sum, p) => sum + (groundTruthSatOut[p.id] || 0), 0);
       const avgSatOut = totalSatOut / presentPlayers.length;
-      const maxAllowed = Math.max(2, Math.ceil(avgSatOut) + 1);
+      const maxAllowed = Math.max(1, Math.ceil(avgSatOut) + 1); // lowered from 2→1: a single sit-out can now trigger a fairness swap
       const fairnessCandidates = fsSittingOut
         .map(p => ({ player: p, satOut: groundTruthSatOut[p.id] || 0 }))
         .filter(({ satOut }) => satOut >= maxAllowed)
@@ -674,10 +674,19 @@ const selectPlayersForRound = (allPlayers, playerStats, maxPlayers, roundIdx, pr
     return { player: p, priority, stats };
   });
 
-  return playerPriority
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, maxPlayers)
-    .map(item => item.player);
+  const sorted = playerPriority.sort((a, b) => b.priority - a.priority);
+  const selected = sorted.slice(0, maxPlayers);
+  const sittingOut = sorted.slice(maxPlayers);
+
+  console.log(`[selectPlayers] Selecting ${maxPlayers} of ${allPlayers.length} players (round ${roundIdx}):`);
+  selected.forEach(({ player, priority, stats }) =>
+    console.log(`  ✅ PLAYING  ${player.name.padEnd(20)} priority=${priority.toFixed(1)} satOut=${stats.roundsSatOut} played=${stats.roundsPlayed} lastRound=${stats.lastPlayedRound}`)
+  );
+  sittingOut.forEach(({ player, priority, stats }) =>
+    console.log(`  💤 SITTING  ${player.name.padEnd(20)} priority=${priority.toFixed(1)} satOut=${stats.roundsSatOut} played=${stats.roundsPlayed} lastRound=${stats.lastPlayedRound}`)
+  );
+
+  return selected.map(item => item.player);
 };
 
 const createBalancedMatches = (playersThisRound, playerStats, maxCourts, startingCourtIndex, roundIdx, groupType, matchFormat, preferMixedDoubles = false) => {
