@@ -518,12 +518,14 @@ const generateRoundRobinRound = (presentPlayers, courts, playerStats, currentRou
       });
       const totalSatOut = presentPlayers.reduce((sum, p) => sum + (groundTruthSatOut[p.id] || 0), 0);
       const avgSatOut = totalSatOut / presentPlayers.length;
-      const maxAllowed = Math.max(1, Math.ceil(avgSatOut) + 1); // lowered from 2→1: a single sit-out can now trigger a fairness swap
+      // Rescue anyone sitting out STRICTLY more than the session average.
+      // This fires as early as round 2 (avg~0.24 → anyone with 1 sit-out qualifies),
+      // instead of the old threshold that required 2+ sit-outs.
       const fairnessCandidates = fsSittingOut
         .map(p => ({ player: p, satOut: groundTruthSatOut[p.id] || 0 }))
-        .filter(({ satOut }) => satOut >= maxAllowed)
+        .filter(({ satOut }) => satOut > avgSatOut)
         .sort((a, b) => b.satOut - a.satOut);
-      console.log(`[Fairness] avg=${avgSatOut.toFixed(2)} maxAllowed=${maxAllowed} candidates=${fairnessCandidates.map(c => `${c.player.name}(${c.satOut})`).join(', ')}`);
+      console.log(`[Fairness] avg=${avgSatOut.toFixed(2)} candidates=${fairnessCandidates.map(c => `${c.player.name}(${c.satOut})`).join(', ')}`);
       fairnessCandidates.forEach(({ player: needsIn }) => {
         const needsInSatOut = groundTruthSatOut[needsIn.id] || 0;
         let swapCandidate = null;
