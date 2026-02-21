@@ -3314,13 +3314,13 @@ const PickleballTournamentManager = () => {
 
       // Best of 3 format - require all game scores to be entered manually
       if (m.matchFormat === 'best_of_3') {
-        // Check if Game 1 and Game 2 scores are entered
-        const g1s1 = Number(m.game1Score1);
-        const g1s2 = Number(m.game1Score2);
-        const g2s1 = Number(m.game2Score1);
-        const g2s2 = Number(m.game2Score2);
+        // Check if Game 1 and Game 2 scores are entered (accept 0 as a valid score)
+        const g1s1 = m.game1Score1 === '' ? null : Number(m.game1Score1);
+        const g1s2 = m.game1Score2 === '' ? null : Number(m.game1Score2);
+        const g2s1 = m.game2Score1 === '' ? null : Number(m.game2Score1);
+        const g2s2 = m.game2Score2 === '' ? null : Number(m.game2Score2);
 
-        if (!g1s1 || !g1s2 || !g2s1 || !g2s2) {
+        if (g1s1 === null || g1s2 === null || g2s1 === null || g2s2 === null) {
           alert('Please enter scores for Game 1 and Game 2 before selecting a winner.');
           return prev;
         }
@@ -3345,10 +3345,7 @@ const PickleballTournamentManager = () => {
 
         // Check if Game 3 is needed (1-1 split) or not (2-0)
         if (team1Games === 2 || team2Games === 2) {
-          // 2-0 win - Game 3 should NOT be played, clear it
-          m.game3Score1 = '';
-          m.game3Score2 = '';
-
+          // 2-0 win — leave Game 3 scores as-is (don't erase anything entered)
           // Determine actual winner from scores
           const actualWinner = team1Games === 2 ? 1 : 2;
 
@@ -3399,11 +3396,11 @@ const PickleballTournamentManager = () => {
         return prev;
       }
 
-      // Single match format - require score to be entered manually
-      const s1 = Number(m.score1);
-      const s2 = Number(m.score2);
+      // Single match format — require score to be entered manually (0 is a valid score)
+      const s1 = m.score1 === '' ? null : Number(m.score1);
+      const s2 = m.score2 === '' ? null : Number(m.score2);
 
-      if (!s1 || !s2) {
+      if (s1 === null || s2 === null) {
         alert('Please enter scores before selecting a winner.');
         return prev;
       }
