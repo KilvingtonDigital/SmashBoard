@@ -2088,7 +2088,7 @@ const PickleballTournamentManager = () => {
     } catch (e) {
       console.warn('[Session] Failed to restore session from localStorage:', e);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   // Fetch roster from DB on login
   useEffect(() => {
@@ -2131,7 +2131,7 @@ const PickleballTournamentManager = () => {
       currentMatch: null
     }));
     setCourtStates(newCourtStates);
-  }, [courts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [courts]); // eslint-disable-line
 
   useEffect(() => {
     const snapshot = {
