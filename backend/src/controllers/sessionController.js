@@ -37,36 +37,37 @@ exports.getSession = async (req, res) => {
 /**
  * PUT /api/session
  * Upserts the active session for the logged-in user.
- * Body: { tournamentName, tournamentType, numCourts, ...sessionData }
+ * One active-session row per user — reuses the most-recent row rather than
+ * creating duplicates, which was causing is_active_session to always end up FALSE.
  */
 exports.saveSession = async (req, res) => {
     try {
         const { tournamentName = 'Active Session', tournamentType = 'roundRobin', numCourts = 1, ...sessionData } = req.body;
 
-        // First clear any existing active session for this user
-        await pool.query(
-            `UPDATE tournaments SET is_active_session = FALSE WHERE user_id = $1 AND is_active_session = TRUE`,
-            [req.user.id]
-        );
-
-        // Upsert: try to update an existing "active session" row, otherwise insert
+        // Find the most-recent session row for this user (active OR stale — we reuse it)
         const existing = await pool.query(
-            `SELECT id FROM tournaments WHERE user_id = $1 AND tournament_name = 'Active Session' ORDER BY updated_at DESC LIMIT 1`,
+            `SELECT id FROM tournaments WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1`,
             [req.user.id]
         );
 
         if (existing.rows.length > 0) {
+            // Update the existing row and mark it as the active session
             await pool.query(
                 `UPDATE tournaments
-         SET tournament_data = $1, tournament_name = $2, tournament_type = $3, num_courts = $4,
-             is_active_session = TRUE, updated_at = NOW()
-         WHERE id = $5`,
+                 SET tournament_data    = $1,
+                     tournament_name    = $2,
+                     tournament_type    = $3,
+                     num_courts         = $4,
+                     is_active_session  = TRUE,
+                     updated_at         = NOW()
+                 WHERE id = $5`,
                 [sessionData, tournamentName, tournamentType, numCourts, existing.rows[0].id]
             );
         } else {
+            // First-ever save for this user — insert a new row
             await pool.query(
                 `INSERT INTO tournaments (user_id, tournament_name, tournament_type, num_courts, tournament_data, is_active_session)
-         VALUES ($1, $2, $3, $4, $5, TRUE)`,
+                 VALUES ($1, $2, $3, $4, $5, TRUE)`,
                 [req.user.id, tournamentName, tournamentType, numCourts, sessionData]
             );
         }
