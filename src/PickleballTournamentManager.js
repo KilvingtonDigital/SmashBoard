@@ -2036,6 +2036,7 @@ const PickleballTournamentManager = () => {
   const { user } = useAuth();
   const api = useAPI();
   const { loadSession, saveSession, clearSession } = useSessionSync();
+  const isClearingSession = useRef(false); // prevents autosave race during End & Clear
   const [players, setPlayers] = useState([]);
   const [form, setForm] = useState({ name: '', rating: '', gender: 'male' });
   const [bulkText, setBulkText] = useState('');
@@ -2203,6 +2204,9 @@ const PickleballTournamentManager = () => {
   }, [courts]); // eslint-disable-line
 
   useEffect(() => {
+    // Skip autosave while End & Clear is in progress (prevents stale write after cloud clear)
+    if (isClearingSession.current) return;
+
     const snapshot = {
       players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates,
       tournamentName,
@@ -4084,11 +4088,10 @@ const PickleballTournamentManager = () => {
                       <div
                         key={p.id}
                         onClick={() => handlePlayerSelect(p)}
-                        className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${
-                          teamBuilderSelected?.id === p.id
+                        className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${teamBuilderSelected?.id === p.id
                             ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
                             : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
-                        }`}
+                          }`}
                       >
                         <span>{p.name}</span>
                         <span className="flex items-center gap-1.5">
@@ -4112,11 +4115,10 @@ const PickleballTournamentManager = () => {
                           <div className="font-medium text-brand-primary">{team.player1.name} &amp; {team.player2.name}</div>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <span className="text-xs text-brand-primary/60">Avg {team.avgRating.toFixed(2)}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                              team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
                                 : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
-                                : 'bg-purple-100 text-purple-700'
-                            }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
+                                  : 'bg-purple-100 text-purple-700'
+                              }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
                           </div>
                         </div>
                         <button onClick={() => removeTeam(team.id)} className="text-brand-primary/40 hover:text-red-500 transition-colors text-lg leading-none ml-2" title="Remove team">×</button>
@@ -4757,6 +4759,14 @@ const PickleballTournamentManager = () => {
                       : 'Clear all data? This cannot be undone.';
 
                     if (window.confirm(confirmMessage)) {
+                      // 1. Raise guard so the autosave useEffect doesn't race
+                      isClearingSession.current = true;
+                      // 2. Nuke localStorage immediately before state resets trigger re-renders
+                      localStorage.removeItem('pb_session');
+                      localStorage.removeItem('pb_roster');
+                      // 3. Clear cloud session (fire-and-forget — DELETE /api/session)
+                      clearSession();
+                      // 4. Reset all React state
                       setPlayers([]);
                       setTeams([]);
                       setKotAutoTeams([]);
@@ -4768,17 +4778,17 @@ const PickleballTournamentManager = () => {
                       setCurrentRound(0);
                       setExportedThisSession(false);
                       setLocked(false);
-                      // Reset court states to initial ready state
+                      setTeamBuilderSelected(null);
                       const resetCourts = Array.from({ length: courts }, (_, i) => ({
                         courtNumber: i + 1,
                         status: 'ready',
                         currentMatch: null
                       }));
                       setCourtStates(resetCourts);
-                      localStorage.removeItem('pb_session');
-                      localStorage.removeItem('pb_roster');
                       setEndOpen(false);
                       setTab('setup');
+                      // 5. Lower guard after React flush settles
+                      setTimeout(() => { isClearingSession.current = false; }, 500);
                     }
                   }}
                 >
