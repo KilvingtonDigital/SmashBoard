@@ -3259,10 +3259,10 @@ const PickleballTournamentManager = () => {
                 const isPlaying = newRound.some(m => m.team1Id === t.id || m.team2Id === t.id);
                 if (updated[t.id]) {
                   if (!isPlaying) {
+                    // Increment cumulative sat-out count (do NOT reset when playing — scheduler needs the historical total)
                     updated[t.id] = { ...updated[t.id], roundsSatOut: (updated[t.id].roundsSatOut || 0) + 1 };
-                  } else {
-                    updated[t.id] = { ...updated[t.id], roundsSatOut: 0 };
                   }
+                  // NOTE: Do NOT reset roundsSatOut to 0 when team plays — same reasoning as regular doubles.
                 }
               });
               return updated;
@@ -3574,6 +3574,22 @@ const PickleballTournamentManager = () => {
 
         return stats;
       }
+    } else if (gameFormat === 'teamed_doubles') {
+      // Round-robin teamed doubles: show per-team stats from teamStats
+      if (Object.keys(teamStats).length === 0 && rounds.length === 0) return null;
+
+      const stats = teams.map(team => {
+        const stat = teamStats[team.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1 };
+        return {
+          ...team,
+          isTeam: true,
+          roundsPlayed: stat.roundsPlayed || 0,
+          roundsSatOut: stat.roundsSatOut || 0,
+          totalRounds: (stat.roundsPlayed || 0) + (stat.roundsSatOut || 0)
+        };
+      }).sort((a, b) => a.roundsSatOut - b.roundsSatOut || b.roundsPlayed - a.roundsPlayed);
+
+      return stats;
     } else {
       if (Object.keys(derivedPlayerStats).length === 0 && rounds.length === 0) return null;
 
@@ -3734,7 +3750,8 @@ const PickleballTournamentManager = () => {
                     {tournamentType === 'round_robin' && <option value="singles">Singles (1v1)</option>}
                   </select>
                 </Field>
-
+
+
 
                 {tournamentType === 'round_robin' && (
                   <Field label="Match format">
@@ -4001,23 +4018,6 @@ const PickleballTournamentManager = () => {
               </table>
             </div>
 
-            <div className="mt-4 flex flex-col gap-2">
-              <Button
-                className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-                onClick={generateNextRound}
-                disabled={presentPlayers.length < 4}
-              >
-                {currentRound === 0 ? 'Start Tournament (Generate Round 1)' : 'Generate Next Round'}
-              </Button>
-              {rounds.length > 0 && (
-                <Button
-                  className="bg-red-500 text-white hover:bg-red-600 w-full"
-                  onClick={clearAllRounds}
-                >
-                  Clear All Rounds
-                </Button>
-              )}
-            </div>
           </Card>
         )}
 
@@ -4157,6 +4157,26 @@ const PickleballTournamentManager = () => {
             </Card>
           );
         })()}
+
+        {tab === 'roster' && (
+          <div className="flex flex-col gap-2">
+            <Button
+              className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+              onClick={generateNextRound}
+              disabled={gameFormat === 'teamed_doubles' ? teams.length < 2 : presentPlayers.length < 4}
+            >
+              {currentRound === 0 ? 'Start Tournament (Generate Round 1)' : 'Generate Next Round'}
+            </Button>
+            {rounds.length > 0 && (
+              <Button
+                className="bg-red-500 text-white hover:bg-red-600 w-full"
+                onClick={clearAllRounds}
+              >
+                Clear All Rounds
+              </Button>
+            )}
+          </div>
+        )}
 
         {tab === 'stats' && (
           <Card>
