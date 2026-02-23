@@ -2166,15 +2166,39 @@ const PickleballTournamentManager = () => {
   }, [players]);
 
 
-  // Initialize court states when courts number changes — skip if states already exist (e.g. restored from session)
+  // Sync courtStates whenever the courts count changes.
+  // If courtStates is empty → full initialisation.
+  // If courts increased beyond current array → append the new courts so they
+  //   show up in getPlayersOnCourt and matches can be assigned to them.
+  // If courts decreased → trim the excess (only remove courts that have no active match).
   useEffect(() => {
-    if (courtStates.length > 0) return;
-    const newCourtStates = Array.from({ length: courts }, (_, i) => ({
-      courtNumber: i + 1,
-      status: 'ready',
-      currentMatch: null
-    }));
-    setCourtStates(newCourtStates);
+    setCourtStates(prev => {
+      if (prev.length === courts) return prev; // nothing to do
+
+      if (prev.length === 0) {
+        // Fresh initialisation
+        return Array.from({ length: courts }, (_, i) => ({
+          courtNumber: i + 1,
+          status: 'ready',
+          currentMatch: null
+        }));
+      }
+
+      if (courts > prev.length) {
+        // Add the missing courts
+        const extras = Array.from({ length: courts - prev.length }, (_, i) => ({
+          courtNumber: prev.length + i + 1,
+          status: 'ready',
+          currentMatch: null
+        }));
+        return [...prev, ...extras];
+      }
+
+      // courts < prev.length — trim only courts with no active match
+      return prev
+        .filter(c => c.courtNumber <= courts || c.currentMatch !== null)
+        .slice(0, Math.max(courts, prev.filter(c => c.currentMatch !== null).length));
+    });
   }, [courts]); // eslint-disable-line
 
   useEffect(() => {
@@ -3191,14 +3215,22 @@ const PickleballTournamentManager = () => {
           setCourtStates(prev => {
             const updated = prev.map(c => ({ ...c })); // Deep copy to be safe
             newRound.forEach((match) => {
-              const courtIdx = updated.findIndex(c => c.courtNumber === match.court);
-              if (courtIdx !== -1) {
-                updated[courtIdx] = {
-                  ...updated[courtIdx],
-                  status: 'playing',
-                  currentMatch: match
-                };
+              let courtIdx = updated.findIndex(c => c.courtNumber === match.court);
+              if (courtIdx === -1) {
+                // This court doesn't exist in courtStates yet (e.g. courts were
+                // increased but courtStates wasn't synced in time). Create it.
+                updated.push({
+                  courtNumber: match.court,
+                  status: 'ready',
+                  currentMatch: null
+                });
+                courtIdx = updated.length - 1;
               }
+              updated[courtIdx] = {
+                ...updated[courtIdx],
+                status: 'playing',
+                currentMatch: match
+              };
             });
             return updated;
           });
@@ -3273,15 +3305,18 @@ const PickleballTournamentManager = () => {
         // Assign King of Court matches to courts immediately
         setCourtStates(prev => {
           const updated = [...prev];
-          newRound.forEach((match, idx) => {
-            const courtIdx = updated.findIndex(c => c.courtNumber === match.court);
-            if (courtIdx !== -1) {
-              updated[courtIdx] = {
-                ...updated[courtIdx],
-                status: 'playing',
-                currentMatch: match
-              };
+          newRound.forEach((match) => {
+            let courtIdx = updated.findIndex(c => c.courtNumber === match.court);
+            if (courtIdx === -1) {
+              // Court missing from courtStates — create it
+              updated.push({ courtNumber: match.court, status: 'ready', currentMatch: null });
+              courtIdx = updated.length - 1;
             }
+            updated[courtIdx] = {
+              ...updated[courtIdx],
+              status: 'playing',
+              currentMatch: match
+            };
           });
           return updated;
         });
@@ -4470,277 +4505,285 @@ const PickleballTournamentManager = () => {
                           )}
                         </div>
 
-                        <div className="text-[11px] sm:text-xs font-medium text-brand-primary/70 flex items-center gap-2">
-                          <span>Court {m.court}</span>
-                          {m.pointsForWin && (
-                            <span className="text-brand-secondary font-bold">
-                              {m.pointsForWin} pts/win
-                            </span>
+                        {/* Full-width court header — immediately visible for scorekeepers */}
+                        <div className=\"-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 mb-3 px-4 py-2 bg-brand-primary rounded-t-2xl flex items-center justify-between\">
+                        <span className=\"text-white font-bold text-base tracking-wide\">
+                        🏓 Court {m.court}
+                      </span>
+                          {
+                        m.pointsForWin && (
+                          <span className=\"text-brand-secondary font-bold text-sm\">
+                    {m.pointsForWin} pts/win
+                  </span>
                           )}
-                        </div>
+                </div>
 
-                        {/* Singles Format */}
-                        {m.gameFormat === 'singles' && m.player1 && m.player2 ? (
-                          <>
-                            <div className="mt-1">
-                              <div className="font-semibold text-brand-primary text-sm">Player 1</div>
-                              <div className="text-brand-primary/90">
-                                <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
-                              </div>
-                            </div>
+                        {/* Singles Format */ }
+              {
+                m.gameFormat === 'singles' && m.player1 && m.player2 ? (
+                  <>
+                    <div className="mt-1">
+                      <div className="font-semibold text-brand-primary text-sm">Player 1</div>
+                      <div className="text-brand-primary/90">
+                        <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
+                      </div>
+                    </div>
 
-                            <div className="mt-2">
-                              <div className="font-semibold text-brand-primary text-sm">Player 2</div>
-                              <div className="text-brand-primary/90">
-                                <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          /* Doubles Format (regular and teamed) */
-                          <>
-                            <div className="mt-1">
-                              <div className="font-semibold text-brand-primary text-sm">Team 1</div>
-                              {m.team1 ? (
-                                <div className="text-brand-primary/90">
-                                  <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
-                                  <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
-                                </div>
-                              ) : <div className="text-sm">TBD</div>}
-                            </div>
-
-                            <div className="mt-2">
-                              <div className="font-semibold text-brand-primary text-sm">Team 2</div>
-                              {m.team2 ? (
-                                <div className="text-brand-primary/90">
-                                  <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
-                                  <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
-                                </div>
-                              ) : <div className="text-sm">TBD</div>}
-                            </div>
-                          </>
-                        )}
-
-                        <div className="mt-3 flex flex-col gap-2">
-                          {/* Best of 3 scoring */}
-                          {m.matchFormat === 'best_of_3' ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            /* Single match scoring */
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min={0}
-                                value={m.score1 === '' ? '' : m.score1 ?? ''}
-                                onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
-                                className="w-20 h-10 rounded border border-brand-gray px-2"
-                              />
-                              <span className="text-brand-primary">–</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={m.score2 === '' ? '' : m.score2 ?? ''}
-                                onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
-                                className="w-20 h-10 rounded border border-brand-gray px-2"
-                              />
-                            </div>
-                          )}
-
-
-                          {m.status !== 'completed' ? (
-                            <div className="flex flex-col gap-2">
-                              <div className="grid grid-cols-2 gap-2 sm:flex">
-                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 1)}>
-                                  {m.gameFormat === 'singles' ? 'Player 1 wins' : 'Team 1 wins'}
-                                </Button>
-                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 2)}>
-                                  {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
-                                </Button>
-                              </div>
-
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
-                                Completed
-                              </span>
-                              {m.pointsForWin && (
-                                <span className="text-xs text-brand-primary/70">
-                                  +{m.pointsForWin} pts awarded
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                    ))}
+                    <div className="mt-2">
+                      <div className="font-semibold text-brand-primary text-sm">Player 2</div>
+                      <div className="text-brand-primary/90">
+                        <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                /* Doubles Format (regular and teamed) */
+                <>
+                  <div className="mt-1">
+                    <div className="font-semibold text-brand-primary text-sm">Team 1</div>
+                    {m.team1 ? (
+                      <div className="text-brand-primary/90">
+                        <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
+                        <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
+                      </div>
+                    ) : <div className="text-sm">TBD</div>}
                   </div>
-                </details>
-              );
-            })}
-          </div>
+
+                  <div className="mt-2">
+                    <div className="font-semibold text-brand-primary text-sm">Team 2</div>
+                    {m.team2 ? (
+                      <div className="text-brand-primary/90">
+                        <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
+                        <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
+                      </div>
+                    ) : <div className="text-sm">TBD</div>}
+                  </div>
+                </>
+              )
+              }
+
+              <div className="mt-3 flex flex-col gap-2">
+                {/* Best of 3 scoring */}
+                {m.matchFormat === 'best_of_3' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                      <span className="text-brand-primary">–</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                      <span className="text-brand-primary">–</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                      <span className="text-brand-primary">–</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
+                        onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
+                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  /* Single match scoring */
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={m.score1 === '' ? '' : m.score1 ?? ''}
+                      onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
+                      className="w-20 h-10 rounded border border-brand-gray px-2"
+                    />
+                    <span className="text-brand-primary">–</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={m.score2 === '' ? '' : m.score2 ?? ''}
+                      onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
+                      className="w-20 h-10 rounded border border-brand-gray px-2"
+                    />
+                  </div>
+                )}
+
+
+                {m.status !== 'completed' ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="grid grid-cols-2 gap-2 sm:flex">
+                      <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 1)}>
+                        {m.gameFormat === 'singles' ? 'Player 1 wins' : 'Team 1 wins'}
+                      </Button>
+                      <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 2)}>
+                        {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
+                      </Button>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
+                      Completed
+                    </span>
+                    {m.pointsForWin && (
+                      <span className="text-xs text-brand-primary/70">
+                        +{m.pointsForWin} pts awarded
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+                      </Card>
+        ))}
+      </div>
+    </details>
+  );
+})}
+          </div >
         )}
-      </div>
+      </div >
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-brand-gray bg-brand-white/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 text-sm">
-          <div className="hidden sm:flex flex-wrap items-center gap-2 text-brand-primary">
-            <span className="rounded-full bg-brand-gray px-3 py-1">Present <b>{presentPlayers.length}</b></span>
-            <span className="rounded-full bg-brand-gray px-3 py-1">Round <b>{currentRound}</b></span>
-          </div>
-          <div className="w-full sm:w-auto">
-            <div className="grid grid-cols-1 sm:flex gap-2">
-              <InstallPrompt className="w-full sm:w-auto" />
-              <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/90 w-full sm:w-auto" onClick={() => setEndOpen(true)}>
-                End Session
-              </Button>
-              {tab !== 'setup' && tab !== 'roster' && (
-                <Button
-                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full sm:w-auto"
-                  onClick={generateNextRound}
-                  disabled={presentPlayers.length < 4}
-                >
-                  Next Round
-                </Button>
-              )}
-            </div>
-          </div>
+  <div className="fixed inset-x-0 bottom-0 z-20 border-t border-brand-gray bg-brand-white/95 backdrop-blur">
+    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 text-sm">
+      <div className="hidden sm:flex flex-wrap items-center gap-2 text-brand-primary">
+        <span className="rounded-full bg-brand-gray px-3 py-1">Present <b>{presentPlayers.length}</b></span>
+        <span className="rounded-full bg-brand-gray px-3 py-1">Round <b>{currentRound}</b></span>
+      </div>
+      <div className="w-full sm:w-auto">
+        <div className="grid grid-cols-1 sm:flex gap-2">
+          <InstallPrompt className="w-full sm:w-auto" />
+          <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/90 w-full sm:w-auto" onClick={() => setEndOpen(true)}>
+            End Session
+          </Button>
+          {tab !== 'setup' && tab !== 'roster' && (
+            <Button
+              className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full sm:w-auto"
+              onClick={generateNextRound}
+              disabled={presentPlayers.length < 4}
+            >
+              Next Round
+            </Button>
+          )}
         </div>
       </div>
-
-      {endOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50">
-          <div className="w-full sm:max-w-lg bg-brand-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-5">
-            <h3 className="text-base sm:text-lg font-semibold text-brand-primary">Save results</h3>
-            <p className="text-sm text-brand-primary/80 mt-1">
-              Download CSV of scores and statistics
-            </p>
-
-            <div className="mt-3 space-y-2">
-              <Button
-                className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-                onClick={async () => {
-                  const results = buildResults(
-                    players,
-                    rounds,
-                    {
-                      courts, sessionMinutes, minutesPerRound, tournamentType, separateBySkill, currentRound
-                    },
-                    tournamentType === 'king_of_court' ? (gameFormat === 'teamed_doubles' ? kotTeamStats : kotStats) : null
-                  );
-                  const csv = toCSV(results);
-                  const filename = `smashboard-${tournamentType}-${new Date().toISOString().slice(0, 10)}.csv`;
-
-                  downloadFile(filename, csv);
-                  await emailCSV(csv, filename);
-                  setExportedThisSession(true);
-                }}
-              >
-                Download CSV
-              </Button>
-            </div>
-
-            <div className="mt-4 flex flex-col sm:flex-row gap-2">
-              <Button className="bg-brand-gray text-brand-primary hover:bg-brand-gray/80 w-full" onClick={() => setEndOpen(false)}>
-                Keep Editing
-              </Button>
-              <Button
-                className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-                onClick={() => {
-                  // If they haven't exported, warn them strongly
-                  // If they have exported, still confirm but with a gentler message
-                  const confirmMessage = !exportedThisSession
-                    ? 'You have not exported your data! Clear all data anyway? This cannot be undone.'
-                    : 'Clear all data? This cannot be undone.';
-
-                  if (window.confirm(confirmMessage)) {
-                    setPlayers([]);
-                    setTeams([]);
-                    setKotAutoTeams([]);
-                    setRounds([]);
-                    setPlayerStats({});
-                    setTeamStats({});
-                    setKotStats({});
-                    setKotTeamStats({});
-                    setCurrentRound(0);
-                    setExportedThisSession(false);
-                    setLocked(false);
-                    // Reset court states to initial ready state
-                    const resetCourts = Array.from({ length: courts }, (_, i) => ({
-                      courtNumber: i + 1,
-                      status: 'ready',
-                      currentMatch: null
-                    }));
-                    setCourtStates(resetCourts);
-                    localStorage.removeItem('pb_session');
-                    localStorage.removeItem('pb_roster');
-                    setEndOpen(false);
-                    setTab('setup');
-                  }
-                }}
-              >
-                End & Clear
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
+  </div>
+
+{
+  endOpen && (
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50">
+      <div className="w-full sm:max-w-lg bg-brand-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-5">
+        <h3 className="text-base sm:text-lg font-semibold text-brand-primary">Save results</h3>
+        <p className="text-sm text-brand-primary/80 mt-1">
+          Download CSV of scores and statistics
+        </p>
+
+        <div className="mt-3 space-y-2">
+          <Button
+            className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+            onClick={async () => {
+              const results = buildResults(
+                players,
+                rounds,
+                {
+                  courts, sessionMinutes, minutesPerRound, tournamentType, separateBySkill, currentRound
+                },
+                tournamentType === 'king_of_court' ? (gameFormat === 'teamed_doubles' ? kotTeamStats : kotStats) : null
+              );
+              const csv = toCSV(results);
+              const filename = `smashboard-${tournamentType}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+              downloadFile(filename, csv);
+              await emailCSV(csv, filename);
+              setExportedThisSession(true);
+            }}
+          >
+            Download CSV
+          </Button>
+        </div>
+
+        <div className="mt-4 flex flex-col sm:flex-row gap-2">
+          <Button className="bg-brand-gray text-brand-primary hover:bg-brand-gray/80 w-full" onClick={() => setEndOpen(false)}>
+            Keep Editing
+          </Button>
+          <Button
+            className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+            onClick={() => {
+              // If they haven't exported, warn them strongly
+              // If they have exported, still confirm but with a gentler message
+              const confirmMessage = !exportedThisSession
+                ? 'You have not exported your data! Clear all data anyway? This cannot be undone.'
+                : 'Clear all data? This cannot be undone.';
+
+              if (window.confirm(confirmMessage)) {
+                setPlayers([]);
+                setTeams([]);
+                setKotAutoTeams([]);
+                setRounds([]);
+                setPlayerStats({});
+                setTeamStats({});
+                setKotStats({});
+                setKotTeamStats({});
+                setCurrentRound(0);
+                setExportedThisSession(false);
+                setLocked(false);
+                // Reset court states to initial ready state
+                const resetCourts = Array.from({ length: courts }, (_, i) => ({
+                  courtNumber: i + 1,
+                  status: 'ready',
+                  currentMatch: null
+                }));
+                setCourtStates(resetCourts);
+                localStorage.removeItem('pb_session');
+                localStorage.removeItem('pb_roster');
+                setEndOpen(false);
+                setTab('setup');
+              }
+            }}
+          >
+            End & Clear
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+    </div >
   );
 };
 
