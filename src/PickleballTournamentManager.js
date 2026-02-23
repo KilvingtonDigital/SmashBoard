@@ -3734,178 +3734,7 @@ const PickleballTournamentManager = () => {
                     {tournamentType === 'round_robin' && <option value="singles">Singles (1v1)</option>}
                   </select>
                 </Field>
-
-                {/* ── TEAM BUILDER ── appears only when Teamed Doubles is selected */}
-                {gameFormat === 'teamed_doubles' && (() => {
-                  const assignedIds = new Set(teams.flatMap(t => [t.player1.id, t.player2.id]));
-                  const unassigned = presentPlayers.filter(p => !assignedIds.has(p.id));
-
-                  const handlePlayerSelect = (player) => {
-                    if (!teamBuilderSelected) {
-                      setTeamBuilderSelected(player);
-                      return;
-                    }
-                    if (teamBuilderSelected.id === player.id) {
-                      setTeamBuilderSelected(null);
-                      return;
-                    }
-                    // Form the team
-                    const p1 = teamBuilderSelected;
-                    const p2 = player;
-                    const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
-                      : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
-                        : 'mixed';
-                    const newTeam = {
-                      id: uid(),
-                      player1: p1,
-                      player2: p2,
-                      gender,
-                      avgRating: (Number(p1.rating) + Number(p2.rating)) / 2
-                    };
-                    setTeams(prev => [...prev, newTeam]);
-                    setTeamBuilderSelected(null);
-                  };
-
-                  const autoAssignStacked = () => {
-                    const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
-                    const newTeams = [];
-                    for (let i = 0; i + 1 < sorted.length; i += 2) {
-                      const p1 = sorted[i], p2 = sorted[i + 1];
-                      const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
-                        : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
-                          : 'mixed';
-                      newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
-                    }
-                    setTeams(prev => [...prev, ...newTeams]);
-                  };
-
-                  const autoAssignBalanced = () => {
-                    const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
-                    const newTeams = [];
-                    let lo = sorted.length - 1;
-                    for (let hi = 0; hi < lo; hi++, lo--) {
-                      const p1 = sorted[hi], p2 = sorted[lo];
-                      const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
-                        : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
-                          : 'mixed';
-                      newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
-                    }
-                    setTeams(prev => [...prev, ...newTeams]);
-                  };
-
-                  const removeTeam = (teamId) => {
-                    setTeams(prev => prev.filter(t => t.id !== teamId));
-                    setTeamBuilderSelected(null);
-                  };
-
-                  return (
-                    <div className="mt-4 border-t border-brand-gray pt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-brand-primary">Team Builder</h3>
-                        <span className="text-xs text-brand-primary/60">{teams.length} team{teams.length !== 1 ? 's' : ''} formed · {unassigned.length} unassigned</span>
-                      </div>
-
-                      {teamBuilderSelected && (
-                        <div className="mb-3 px-3 py-2 rounded-lg bg-brand-secondary/20 border border-brand-secondary text-xs text-brand-primary font-medium">
-                          ✋ <strong>{teamBuilderSelected.name}</strong> selected — now click a second player to complete the pair
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* Left: Unassigned pool */}
-                        <div>
-                          <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Unassigned ({unassigned.length})</p>
-                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                            {unassigned.length === 0 && (
-                              <p className="text-xs text-brand-primary/50 italic py-2">All players assigned ✓</p>
-                            )}
-                            {unassigned.map(p => (
-                              <div
-                                key={p.id}
-                                onClick={() => handlePlayerSelect(p)}
-                                className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${teamBuilderSelected?.id === p.id
-                                  ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
-                                  : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
-                                  }`}
-                              >
-                                <span>{p.name}</span>
-                                <span className="flex items-center gap-1.5">
-                                  <span className="text-xs text-brand-primary/60">({p.rating})</span>
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${p.gender === 'female' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'
-                                    }`}>{p.gender === 'female' ? 'W' : 'M'}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Right: Formed teams */}
-                        <div>
-                          <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Teams ({teams.length})</p>
-                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                            {teams.length === 0 && (
-                              <p className="text-xs text-brand-primary/50 italic py-2">No teams yet — pair players from the left</p>
-                            )}
-                            {teams.map(team => (
-                              <div key={team.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-brand-gray bg-white text-sm">
-                                <div>
-                                  <div className="font-medium text-brand-primary">{team.player1.name} &amp; {team.player2.name}</div>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-xs text-brand-primary/60">Avg {team.avgRating.toFixed(2)}</span>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
-                                      : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
-                                        : 'bg-purple-100 text-purple-700'
-                                      }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() => removeTeam(team.id)}
-                                  className="text-brand-primary/40 hover:text-red-500 transition-colors text-lg leading-none ml-2"
-                                  title="Remove team"
-                                >×</button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Auto-pair buttons */}
-                      {unassigned.length >= 2 && (
-                        <div className="mt-3 flex flex-col gap-2">
-                          <p className="text-xs text-brand-primary/60 font-medium">Auto-pair {unassigned.length} unassigned players:</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={autoAssignStacked}
-                              className="px-3 py-2 rounded-lg border border-brand-primary text-brand-primary text-xs font-semibold hover:bg-brand-primary hover:text-white transition-colors text-left"
-                            >
-                              <div className="font-bold mb-0.5">⚡ Stacked</div>
-                              <div className="font-normal opacity-70">Top-rated together · competitive feel</div>
-                            </button>
-                            <button
-                              onClick={autoAssignBalanced}
-                              className="px-3 py-2 rounded-lg border border-brand-secondary text-brand-primary text-xs font-semibold hover:bg-brand-secondary/20 transition-colors text-left"
-                            >
-                              <div className="font-bold mb-0.5">⚖️ Balanced</div>
-                              <div className="font-normal opacity-70">Best + weakest paired · even matches</div>
-                            </button>
-                          </div>
-                          {unassigned.length % 2 !== 0 && (
-                            <p className="text-xs text-amber-600 italic">⚠️ Odd number of players — 1 will remain unassigned</p>
-                          )}
-                        </div>
-                      )}
-
-                      {teams.length > 0 && (
-                        <button
-                          onClick={() => { setTeams([]); setTeamBuilderSelected(null); }}
-                          className="mt-2 text-xs text-brand-primary/40 hover:text-red-500 transition-colors"
-                        >
-                          Clear all teams
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
+
 
                 {tournamentType === 'round_robin' && (
                   <Field label="Match format">
@@ -4192,159 +4021,142 @@ const PickleballTournamentManager = () => {
           </Card>
         )}
 
-        {tab === 'roster' && gameFormat === 'teamed_doubles' && (
-          <Card className="mt-3">
-            <h3 className="text-sm font-semibold text-brand-primary mb-3">Team Formation</h3>
-            <p className="text-xs text-brand-primary/70 mb-3">
-              Create fixed teams for the tournament. Teams will play together throughout all rounds.
-            </p>
+        {tab === 'roster' && gameFormat === 'teamed_doubles' && (() => {
+          const assignedIds = new Set(teams.flatMap(t => [t.player1.id, t.player2.id]));
+          const unassigned = presentPlayers.filter(p => !assignedIds.has(p.id));
 
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 mb-3">
-              <div className="relative">
-                <select
-                  value={form.teamPlayer1?.id || ''}
-                  onChange={(e) => {
-                    const player1Id = e.target.value;
-                    if (!player1Id) {
-                      setForm(f => ({ ...f, teamPlayer1: null }));
-                      return;
-                    }
-                    const player1 = players.find(p => p.id === player1Id);
-                    if (player1) {
-                      setForm(f => ({ ...f, teamPlayer1: player1 }));
-                    }
-                  }}
-                  className="h-11 rounded-lg border border-brand-gray px-3 w-full pr-8"
-                >
-                  <option value="">Select Player 1</option>
-                  {players.filter(p => !teams.some(t => t.player1.id === p.id || t.player2.id === p.id) && p.id !== form.teamPlayer2?.id).map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>
-                  ))}
-                </select>
-                {form.teamPlayer1 && (
-                  <button
-                    onClick={() => setForm(f => ({ ...f, teamPlayer1: null }))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-red-600 hover:text-red-800 font-bold"
-                    title="Clear selection"
-                  >
-                    ✕
-                  </button>
-                )}
+          const handlePlayerSelect = (player) => {
+            if (!teamBuilderSelected) { setTeamBuilderSelected(player); return; }
+            if (teamBuilderSelected.id === player.id) { setTeamBuilderSelected(null); return; }
+            const p1 = teamBuilderSelected, p2 = player;
+            const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+              : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female' : 'mixed';
+            setTeams(prev => [...prev, { id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 }]);
+            setTeamBuilderSelected(null);
+          };
+
+          const autoAssignStacked = () => {
+            const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
+            const newTeams = [];
+            for (let i = 0; i + 1 < sorted.length; i += 2) {
+              const p1 = sorted[i], p2 = sorted[i + 1];
+              const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+                : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female' : 'mixed';
+              newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
+            }
+            setTeams(prev => [...prev, ...newTeams]);
+          };
+
+          const autoAssignBalanced = () => {
+            const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
+            const newTeams = [];
+            let lo = sorted.length - 1;
+            for (let hi = 0; hi < lo; hi++, lo--) {
+              const p1 = sorted[hi], p2 = sorted[lo];
+              const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+                : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female' : 'mixed';
+              newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
+            }
+            setTeams(prev => [...prev, ...newTeams]);
+          };
+
+          const removeTeam = (teamId) => { setTeams(prev => prev.filter(t => t.id !== teamId)); setTeamBuilderSelected(null); };
+
+          return (
+            <Card className="mt-3">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-brand-primary">Team Builder</h3>
+                <span className="text-xs text-brand-primary/60">{teams.length} team{teams.length !== 1 ? 's' : ''} formed· {unassigned.length} unassigned</span>
               </div>
 
-              <div className="relative">
-                <select
-                  value={form.teamPlayer2?.id || ''}
-                  onChange={(e) => {
-                    const player2Id = e.target.value;
-                    if (!player2Id) {
-                      setForm(f => ({ ...f, teamPlayer2: null }));
-                      return;
-                    }
-                    const player2 = players.find(p => p.id === player2Id);
-                    if (player2) {
-                      setForm(f => ({ ...f, teamPlayer2: player2 }));
-                    }
-                  }}
-                  className="h-11 rounded-lg border border-brand-gray px-3 w-full pr-8"
-                >
-                  <option value="">Select Player 2</option>
-                  {players.filter(p => !teams.some(t => t.player1.id === p.id || t.player2.id === p.id) && p.id !== form.teamPlayer1?.id).map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.rating})</option>
-                  ))}
-                </select>
-                {form.teamPlayer2 && (
-                  <button
-                    onClick={() => setForm(f => ({ ...f, teamPlayer2: null }))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-red-600 hover:text-red-800 font-bold"
-                    title="Clear selection"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+              {teamBuilderSelected && (
+                <div className="mb-3 px-3 py-2 rounded-lg bg-brand-secondary/20 border border-brand-secondary text-xs text-brand-primary font-medium">
+                  ✋ <strong>{teamBuilderSelected.name}</strong> selected — now click a second player to complete the pair
+                </div>
+              )}
 
-              <select
-                value={form.teamGender || 'mixed'}
-                onChange={(e) => setForm(f => ({ ...f, teamGender: e.target.value }))}
-                className="h-11 rounded-lg border border-brand-gray px-3"
-              >
-                <option value="male_male">Male/Male</option>
-                <option value="female_female">Female/Female</option>
-                <option value="mixed">Male/Female (Mixed)</option>
-              </select>
-
-              <Button
-                className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 col-span-2"
-                onClick={() => {
-                  if (!form.teamPlayer1 || !form.teamPlayer2) {
-                    alert('Please select both players');
-                    return;
-                  }
-                  const newTeam = {
-                    id: uid(),
-                    player1: form.teamPlayer1,
-                    player2: form.teamPlayer2,
-                    gender: form.teamGender || 'mixed',
-                    avgRating: (form.teamPlayer1.rating + form.teamPlayer2.rating) / 2
-                  };
-                  setTeams([...teams, newTeam]);
-                  setForm(f => ({ ...f, teamPlayer1: null, teamPlayer2: null, teamGender: 'mixed' }));
-                }}
-                disabled={!form.teamPlayer1 || !form.teamPlayer2}
-              >
-                Add Team
-              </Button>
-            </div>
-
-            {teams.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-brand-white">
-                    <tr className="text-left">
-                      <th className="p-2">Team</th>
-                      <th className="p-2">Player 1</th>
-                      <th className="p-2">Player 2</th>
-                      <th className="p-2">Type</th>
-                      <th className="p-2">Avg Rating</th>
-                      <th className="p-2 w-20"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teams.map((team, idx) => (
-                      <tr key={team.id} className="border-t border-brand-gray/60">
-                        <td className="p-2 font-semibold">Team {idx + 1}</td>
-                        <td className="p-2">{team.player1.name} ({team.player1.rating})</td>
-                        <td className="p-2">{team.player2.name} ({team.player2.rating})</td>
-                        <td className="p-2">
-                          <span className={`text-xs px-2 py-1 rounded ${team.gender === 'male_male' ? 'bg-blue-100 text-blue-700' :
-                            team.gender === 'female_female' ? 'bg-pink-100 text-pink-700' :
-                              'bg-purple-100 text-purple-700'
-                            }`}>
-                            {team.gender === 'male_male' ? 'M/M' :
-                              team.gender === 'female_female' ? 'F/F' : 'Mixed'}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Unassigned ({unassigned.length})</p>
+                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {unassigned.length === 0 && <p className="text-xs text-brand-primary/50 italic py-2">All players assigned ✓</p>}
+                    {unassigned.map(p => (
+                      <div
+                        key={p.id}
+                        onClick={() => handlePlayerSelect(p)}
+                        className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${
+                          teamBuilderSelected?.id === p.id
+                            ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
+                            : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
+                        }`}
+                      >
+                        <span>{p.name}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-xs text-brand-primary/60">({p.rating})</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${p.gender === 'female' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {p.gender === 'female' ? 'W' : 'M'}
                           </span>
-                        </td>
-                        <td className="p-2">{team.avgRating.toFixed(2)}</td>
-                        <td className="p-2 text-right">
-                          <button onClick={() => setTeams(teams.filter(t => t.id !== team.id))} className="text-red-600 hover:underline text-xs">Remove</button>
-                        </td>
-                      </tr>
+                        </span>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                  </div>
+                </div>
 
-            {teams.length > 0 && teams.length < 2 && (
-              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="text-xs text-yellow-800">
-                  ⚠️ You need at least 2 teams to start a tournament.
+                <div>
+                  <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Teams ({teams.length})</p>
+                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {teams.length === 0 && <p className="text-xs text-brand-primary/50 italic py-2">No teams yet — pair players from the left</p>}
+                    {teams.map(team => (
+                      <div key={team.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-brand-gray bg-white text-sm">
+                        <div>
+                          <div className="font-medium text-brand-primary">{team.player1.name} &amp; {team.player2.name}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-xs text-brand-primary/60">Avg {team.avgRating.toFixed(2)}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                              team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
+                                : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
+                                : 'bg-purple-100 text-purple-700'
+                            }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
+                          </div>
+                        </div>
+                        <button onClick={() => removeTeam(team.id)} className="text-brand-primary/40 hover:text-red-500 transition-colors text-lg leading-none ml-2" title="Remove team">×</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            )}
-          </Card>
-        )}
+
+              {unassigned.length >= 2 && (
+                <div className="mt-3 flex flex-col gap-2">
+                  <p className="text-xs text-brand-primary/60 font-medium">Auto-pair {unassigned.length} unassigned players:</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={autoAssignStacked} className="px-3 py-2 rounded-lg border border-brand-primary text-brand-primary text-xs font-semibold hover:bg-brand-primary hover:text-white transition-colors text-left">
+                      <div className="font-bold mb-0.5">⚡ Stacked</div>
+                      <div className="font-normal opacity-70">Top-rated together · competitive feel</div>
+                    </button>
+                    <button onClick={autoAssignBalanced} className="px-3 py-2 rounded-lg border border-brand-secondary text-brand-primary text-xs font-semibold hover:bg-brand-secondary/20 transition-colors text-left">
+                      <div className="font-bold mb-0.5">⚖️ Balanced</div>
+                      <div className="font-normal opacity-70">Best + weakest paired · even matches</div>
+                    </button>
+                  </div>
+                  {unassigned.length % 2 !== 0 && <p className="text-xs text-amber-600 italic">⚠️ Odd number of players — 1 will remain unassigned</p>}
+                </div>
+              )}
+
+              {teams.length < 2 && presentPlayers.length >= 4 && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="text-xs text-yellow-800">⚠️ You need at least 2 teams to start a tournament.</div>
+                </div>
+              )}
+
+              {teams.length > 0 && (
+                <button onClick={() => { setTeams([]); setTeamBuilderSelected(null); }} className="mt-2 text-xs text-brand-primary/40 hover:text-red-500 transition-colors">
+                  Clear all teams
+                </button>
+              )}
+            </Card>
+          );
+        })()}
 
         {tab === 'stats' && (
           <Card>
