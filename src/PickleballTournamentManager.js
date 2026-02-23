@@ -2050,6 +2050,7 @@ const PickleballTournamentManager = () => {
   const [gameFormat, setGameFormat] = useState('doubles'); // doubles, teamed_doubles, singles
   const [matchFormat, setMatchFormat] = useState('single_match'); // single_match, best_of_3
   const [teams, setTeams] = useState([]); // For teamed doubles: [{id, player1, player2, gender}]
+  const [teamBuilderSelected, setTeamBuilderSelected] = useState(null); // player id pending pair in Team Builder
   const [kotAutoTeams, setKotAutoTeams] = useState([]); // For King of Court auto-generated fixed teams
   const [separateBySkill, setSeparateBySkill] = useState(true);
   const [preferMixedDoubles, setPreferMixedDoubles] = useState(true);  // Gender-aware pairing for doubles
@@ -3720,6 +3721,10 @@ const PickleballTournamentManager = () => {
                         if (!window.confirm('Changing game format will clear all rounds. Continue?')) return;
                         clearAllRounds();
                       }
+                      if (newVal !== 'teamed_doubles') {
+                        setTeams([]);
+                        setTeamBuilderSelected(null);
+                      }
                       setGameFormat(newVal);
                     }}
                     className="w-full h-11 rounded-lg border border-brand-gray px-3 focus:border-brand-secondary focus:ring-brand-secondary"
@@ -3729,6 +3734,178 @@ const PickleballTournamentManager = () => {
                     {tournamentType === 'round_robin' && <option value="singles">Singles (1v1)</option>}
                   </select>
                 </Field>
+
+                {/* ── TEAM BUILDER ── appears only when Teamed Doubles is selected */}
+                {gameFormat === 'teamed_doubles' && (() => {
+                  const assignedIds = new Set(teams.flatMap(t => [t.player1.id, t.player2.id]));
+                  const unassigned = presentPlayers.filter(p => !assignedIds.has(p.id));
+
+                  const handlePlayerSelect = (player) => {
+                    if (!teamBuilderSelected) {
+                      setTeamBuilderSelected(player);
+                      return;
+                    }
+                    if (teamBuilderSelected.id === player.id) {
+                      setTeamBuilderSelected(null);
+                      return;
+                    }
+                    // Form the team
+                    const p1 = teamBuilderSelected;
+                    const p2 = player;
+                    const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+                      : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
+                        : 'mixed';
+                    const newTeam = {
+                      id: uid(),
+                      player1: p1,
+                      player2: p2,
+                      gender,
+                      avgRating: (Number(p1.rating) + Number(p2.rating)) / 2
+                    };
+                    setTeams(prev => [...prev, newTeam]);
+                    setTeamBuilderSelected(null);
+                  };
+
+                  const autoAssignStacked = () => {
+                    const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
+                    const newTeams = [];
+                    for (let i = 0; i + 1 < sorted.length; i += 2) {
+                      const p1 = sorted[i], p2 = sorted[i + 1];
+                      const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+                        : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
+                          : 'mixed';
+                      newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
+                    }
+                    setTeams(prev => [...prev, ...newTeams]);
+                  };
+
+                  const autoAssignBalanced = () => {
+                    const sorted = [...unassigned].sort((a, b) => Number(b.rating) - Number(a.rating));
+                    const newTeams = [];
+                    let lo = sorted.length - 1;
+                    for (let hi = 0; hi < lo; hi++, lo--) {
+                      const p1 = sorted[hi], p2 = sorted[lo];
+                      const gender = (p1.gender === 'male' && p2.gender === 'male') ? 'male_male'
+                        : (p1.gender === 'female' && p2.gender === 'female') ? 'female_female'
+                          : 'mixed';
+                      newTeams.push({ id: uid(), player1: p1, player2: p2, gender, avgRating: (Number(p1.rating) + Number(p2.rating)) / 2 });
+                    }
+                    setTeams(prev => [...prev, ...newTeams]);
+                  };
+
+                  const removeTeam = (teamId) => {
+                    setTeams(prev => prev.filter(t => t.id !== teamId));
+                    setTeamBuilderSelected(null);
+                  };
+
+                  return (
+                    <div className="mt-4 border-t border-brand-gray pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-brand-primary">Team Builder</h3>
+                        <span className="text-xs text-brand-primary/60">{teams.length} team{teams.length !== 1 ? 's' : ''} formed · {unassigned.length} unassigned</span>
+                      </div>
+
+                      {teamBuilderSelected && (
+                        <div className="mb-3 px-3 py-2 rounded-lg bg-brand-secondary/20 border border-brand-secondary text-xs text-brand-primary font-medium">
+                          ✋ <strong>{teamBuilderSelected.name}</strong> selected — now click a second player to complete the pair
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Left: Unassigned pool */}
+                        <div>
+                          <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Unassigned ({unassigned.length})</p>
+                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                            {unassigned.length === 0 && (
+                              <p className="text-xs text-brand-primary/50 italic py-2">All players assigned ✓</p>
+                            )}
+                            {unassigned.map(p => (
+                              <div
+                                key={p.id}
+                                onClick={() => handlePlayerSelect(p)}
+                                className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${teamBuilderSelected?.id === p.id
+                                  ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
+                                  : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
+                                  }`}
+                              >
+                                <span>{p.name}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <span className="text-xs text-brand-primary/60">({p.rating})</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${p.gender === 'female' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'
+                                    }`}>{p.gender === 'female' ? 'W' : 'M'}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Right: Formed teams */}
+                        <div>
+                          <p className="text-xs font-semibold text-brand-primary/70 uppercase tracking-wide mb-2">Teams ({teams.length})</p>
+                          <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                            {teams.length === 0 && (
+                              <p className="text-xs text-brand-primary/50 italic py-2">No teams yet — pair players from the left</p>
+                            )}
+                            {teams.map(team => (
+                              <div key={team.id} className="flex items-center justify-between px-3 py-2 rounded-lg border border-brand-gray bg-white text-sm">
+                                <div>
+                                  <div className="font-medium text-brand-primary">{team.player1.name} &amp; {team.player2.name}</div>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-xs text-brand-primary/60">Avg {team.avgRating.toFixed(2)}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
+                                      : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
+                                        : 'bg-purple-100 text-purple-700'
+                                      }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => removeTeam(team.id)}
+                                  className="text-brand-primary/40 hover:text-red-500 transition-colors text-lg leading-none ml-2"
+                                  title="Remove team"
+                                >×</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Auto-pair buttons */}
+                      {unassigned.length >= 2 && (
+                        <div className="mt-3 flex flex-col gap-2">
+                          <p className="text-xs text-brand-primary/60 font-medium">Auto-pair {unassigned.length} unassigned players:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={autoAssignStacked}
+                              className="px-3 py-2 rounded-lg border border-brand-primary text-brand-primary text-xs font-semibold hover:bg-brand-primary hover:text-white transition-colors text-left"
+                            >
+                              <div className="font-bold mb-0.5">⚡ Stacked</div>
+                              <div className="font-normal opacity-70">Top-rated together · competitive feel</div>
+                            </button>
+                            <button
+                              onClick={autoAssignBalanced}
+                              className="px-3 py-2 rounded-lg border border-brand-secondary text-brand-primary text-xs font-semibold hover:bg-brand-secondary/20 transition-colors text-left"
+                            >
+                              <div className="font-bold mb-0.5">⚖️ Balanced</div>
+                              <div className="font-normal opacity-70">Best + weakest paired · even matches</div>
+                            </button>
+                          </div>
+                          {unassigned.length % 2 !== 0 && (
+                            <p className="text-xs text-amber-600 italic">⚠️ Odd number of players — 1 will remain unassigned</p>
+                          )}
+                        </div>
+                      )}
+
+                      {teams.length > 0 && (
+                        <button
+                          onClick={() => { setTeams([]); setTeamBuilderSelected(null); }}
+                          className="mt-2 text-xs text-brand-primary/40 hover:text-red-500 transition-colors"
+                        >
+                          Clear all teams
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {tournamentType === 'round_robin' && (
                   <Field label="Match format">
@@ -4518,268 +4695,268 @@ const PickleballTournamentManager = () => {
 
                         {/* Singles Format */}
                         {m.gameFormat === 'singles' && m.player1 && m.player2 ? (
-                  <>
-                    <div className="mt-1">
-                      <div className="font-semibold text-brand-primary text-sm">Player 1</div>
-                      <div className="text-brand-primary/90">
-                        <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
-                      </div>
-                    </div>
+                          <>
+                            <div className="mt-1">
+                              <div className="font-semibold text-brand-primary text-sm">Player 1</div>
+                              <div className="text-brand-primary/90">
+                                <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
+                              </div>
+                            </div>
 
-                    <div className="mt-2">
-                      <div className="font-semibold text-brand-primary text-sm">Player 2</div>
-                      <div className="text-brand-primary/90">
-                        <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                /* Doubles Format (regular and teamed) */
-                <>
-                  <div className="mt-1">
-                    <div className="font-semibold text-brand-primary text-sm">Team 1</div>
-                    {m.team1 ? (
-                      <div className="text-brand-primary/90">
-                        <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
-                        <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
-                      </div>
-                    ) : <div className="text-sm">TBD</div>}
-                  </div>
+                            <div className="mt-2">
+                              <div className="font-semibold text-brand-primary text-sm">Player 2</div>
+                              <div className="text-brand-primary/90">
+                                <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          /* Doubles Format (regular and teamed) */
+                          <>
+                            <div className="mt-1">
+                              <div className="font-semibold text-brand-primary text-sm">Team 1</div>
+                              {m.team1 ? (
+                                <div className="text-brand-primary/90">
+                                  <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
+                                  <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
+                                </div>
+                              ) : <div className="text-sm">TBD</div>}
+                            </div>
 
-                  <div className="mt-2">
-                    <div className="font-semibold text-brand-primary text-sm">Team 2</div>
-                    {m.team2 ? (
-                      <div className="text-brand-primary/90">
-                        <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
-                        <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
-                      </div>
-                    ) : <div className="text-sm">TBD</div>}
-                  </div>
-                </>
-              )
-              }
+                            <div className="mt-2">
+                              <div className="font-semibold text-brand-primary text-sm">Team 2</div>
+                              {m.team2 ? (
+                                <div className="text-brand-primary/90">
+                                  <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
+                                  <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
+                                </div>
+                              ) : <div className="text-sm">TBD</div>}
+                            </div>
+                          </>
+                        )
+                        }
 
-              <div className="mt-3 flex flex-col gap-2">
-                {/* Best of 3 scoring */}
-                {m.matchFormat === 'best_of_3' ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                      <span className="text-brand-primary">–</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                      <span className="text-brand-primary">–</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                      <span className="text-brand-primary">–</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
-                        onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
-                        className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  /* Single match scoring */
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      value={m.score1 === '' ? '' : m.score1 ?? ''}
-                      onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
-                      className="w-20 h-10 rounded border border-brand-gray px-2"
-                    />
-                    <span className="text-brand-primary">–</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={m.score2 === '' ? '' : m.score2 ?? ''}
-                      onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
-                      className="w-20 h-10 rounded border border-brand-gray px-2"
-                    />
-                  </div>
-                )}
+                        <div className="mt-3 flex flex-col gap-2">
+                          {/* Best of 3 scoring */}
+                          {m.matchFormat === 'best_of_3' ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                                <span className="text-brand-primary">–</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                                <span className="text-brand-primary">–</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                                <span className="text-brand-primary">–</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
+                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            /* Single match scoring */
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={0}
+                                value={m.score1 === '' ? '' : m.score1 ?? ''}
+                                onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
+                                className="w-20 h-10 rounded border border-brand-gray px-2"
+                              />
+                              <span className="text-brand-primary">–</span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={m.score2 === '' ? '' : m.score2 ?? ''}
+                                onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
+                                className="w-20 h-10 rounded border border-brand-gray px-2"
+                              />
+                            </div>
+                          )}
 
 
-                {m.status !== 'completed' ? (
-                  <div className="flex flex-col gap-2">
-                    <div className="grid grid-cols-2 gap-2 sm:flex">
-                      <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 1)}>
-                        {m.gameFormat === 'singles' ? 'Player 1 wins' : 'Team 1 wins'}
-                      </Button>
-                      <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 2)}>
-                        {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
-                      </Button>
-                    </div>
+                          {m.status !== 'completed' ? (
+                            <div className="flex flex-col gap-2">
+                              <div className="grid grid-cols-2 gap-2 sm:flex">
+                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 1)}>
+                                  {m.gameFormat === 'singles' ? 'Player 1 wins' : 'Team 1 wins'}
+                                </Button>
+                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 2)}>
+                                  {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
+                                </Button>
+                              </div>
 
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
-                      Completed
-                    </span>
-                    {m.pointsForWin && (
-                      <span className="text-xs text-brand-primary/70">
-                        +{m.pointsForWin} pts awarded
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
+                                Completed
+                              </span>
+                              {m.pointsForWin && (
+                                <span className="text-xs text-brand-primary/70">
+                                  +{m.pointsForWin} pts awarded
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </Card>
-        ))}
-      </div>
-    </details>
-  );
-})}
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
           </div >
         )}
       </div >
 
-  <div className="fixed inset-x-0 bottom-0 z-20 border-t border-brand-gray bg-brand-white/95 backdrop-blur">
-    <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 text-sm">
-      <div className="hidden sm:flex flex-wrap items-center gap-2 text-brand-primary">
-        <span className="rounded-full bg-brand-gray px-3 py-1">Present <b>{presentPlayers.length}</b></span>
-        <span className="rounded-full bg-brand-gray px-3 py-1">Round <b>{currentRound}</b></span>
-      </div>
-      <div className="w-full sm:w-auto">
-        <div className="grid grid-cols-1 sm:flex gap-2">
-          <InstallPrompt className="w-full sm:w-auto" />
-          <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/90 w-full sm:w-auto" onClick={() => setEndOpen(true)}>
-            End Session
-          </Button>
-          {tab !== 'setup' && tab !== 'roster' && (
-            <Button
-              className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full sm:w-auto"
-              onClick={generateNextRound}
-              disabled={presentPlayers.length < 4}
-            >
-              Next Round
-            </Button>
-          )}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-brand-gray bg-brand-white/95 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 text-sm">
+          <div className="hidden sm:flex flex-wrap items-center gap-2 text-brand-primary">
+            <span className="rounded-full bg-brand-gray px-3 py-1">Present <b>{presentPlayers.length}</b></span>
+            <span className="rounded-full bg-brand-gray px-3 py-1">Round <b>{currentRound}</b></span>
+          </div>
+          <div className="w-full sm:w-auto">
+            <div className="grid grid-cols-1 sm:flex gap-2">
+              <InstallPrompt className="w-full sm:w-auto" />
+              <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/90 w-full sm:w-auto" onClick={() => setEndOpen(true)}>
+                End Session
+              </Button>
+              {tab !== 'setup' && tab !== 'roster' && (
+                <Button
+                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full sm:w-auto"
+                  onClick={generateNextRound}
+                  disabled={presentPlayers.length < 4}
+                >
+                  Next Round
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
 
-{
-  endOpen && (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50">
-      <div className="w-full sm:max-w-lg bg-brand-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-5">
-        <h3 className="text-base sm:text-lg font-semibold text-brand-primary">Save results</h3>
-        <p className="text-sm text-brand-primary/80 mt-1">
-          Download CSV of scores and statistics
-        </p>
+      {
+        endOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50">
+            <div className="w-full sm:max-w-lg bg-brand-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-5">
+              <h3 className="text-base sm:text-lg font-semibold text-brand-primary">Save results</h3>
+              <p className="text-sm text-brand-primary/80 mt-1">
+                Download CSV of scores and statistics
+              </p>
 
-        <div className="mt-3 space-y-2">
-          <Button
-            className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-            onClick={async () => {
-              const results = buildResults(
-                players,
-                rounds,
-                {
-                  courts, sessionMinutes, minutesPerRound, tournamentType, separateBySkill, currentRound
-                },
-                tournamentType === 'king_of_court' ? (gameFormat === 'teamed_doubles' ? kotTeamStats : kotStats) : null
-              );
-              const csv = toCSV(results);
-              const filename = `smashboard-${tournamentType}-${new Date().toISOString().slice(0, 10)}.csv`;
+              <div className="mt-3 space-y-2">
+                <Button
+                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+                  onClick={async () => {
+                    const results = buildResults(
+                      players,
+                      rounds,
+                      {
+                        courts, sessionMinutes, minutesPerRound, tournamentType, separateBySkill, currentRound
+                      },
+                      tournamentType === 'king_of_court' ? (gameFormat === 'teamed_doubles' ? kotTeamStats : kotStats) : null
+                    );
+                    const csv = toCSV(results);
+                    const filename = `smashboard-${tournamentType}-${new Date().toISOString().slice(0, 10)}.csv`;
 
-              downloadFile(filename, csv);
-              await emailCSV(csv, filename);
-              setExportedThisSession(true);
-            }}
-          >
-            Download CSV
-          </Button>
-        </div>
+                    downloadFile(filename, csv);
+                    await emailCSV(csv, filename);
+                    setExportedThisSession(true);
+                  }}
+                >
+                  Download CSV
+                </Button>
+              </div>
 
-        <div className="mt-4 flex flex-col sm:flex-row gap-2">
-          <Button className="bg-brand-gray text-brand-primary hover:bg-brand-gray/80 w-full" onClick={() => setEndOpen(false)}>
-            Keep Editing
-          </Button>
-          <Button
-            className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-            onClick={() => {
-              // If they haven't exported, warn them strongly
-              // If they have exported, still confirm but with a gentler message
-              const confirmMessage = !exportedThisSession
-                ? 'You have not exported your data! Clear all data anyway? This cannot be undone.'
-                : 'Clear all data? This cannot be undone.';
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <Button className="bg-brand-gray text-brand-primary hover:bg-brand-gray/80 w-full" onClick={() => setEndOpen(false)}>
+                  Keep Editing
+                </Button>
+                <Button
+                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
+                  onClick={() => {
+                    // If they haven't exported, warn them strongly
+                    // If they have exported, still confirm but with a gentler message
+                    const confirmMessage = !exportedThisSession
+                      ? 'You have not exported your data! Clear all data anyway? This cannot be undone.'
+                      : 'Clear all data? This cannot be undone.';
 
-              if (window.confirm(confirmMessage)) {
-                setPlayers([]);
-                setTeams([]);
-                setKotAutoTeams([]);
-                setRounds([]);
-                setPlayerStats({});
-                setTeamStats({});
-                setKotStats({});
-                setKotTeamStats({});
-                setCurrentRound(0);
-                setExportedThisSession(false);
-                setLocked(false);
-                // Reset court states to initial ready state
-                const resetCourts = Array.from({ length: courts }, (_, i) => ({
-                  courtNumber: i + 1,
-                  status: 'ready',
-                  currentMatch: null
-                }));
-                setCourtStates(resetCourts);
-                localStorage.removeItem('pb_session');
-                localStorage.removeItem('pb_roster');
-                setEndOpen(false);
-                setTab('setup');
-              }
-            }}
-          >
-            End & Clear
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
+                    if (window.confirm(confirmMessage)) {
+                      setPlayers([]);
+                      setTeams([]);
+                      setKotAutoTeams([]);
+                      setRounds([]);
+                      setPlayerStats({});
+                      setTeamStats({});
+                      setKotStats({});
+                      setKotTeamStats({});
+                      setCurrentRound(0);
+                      setExportedThisSession(false);
+                      setLocked(false);
+                      // Reset court states to initial ready state
+                      const resetCourts = Array.from({ length: courts }, (_, i) => ({
+                        courtNumber: i + 1,
+                        status: 'ready',
+                        currentMatch: null
+                      }));
+                      setCourtStates(resetCourts);
+                      localStorage.removeItem('pb_session');
+                      localStorage.removeItem('pb_roster');
+                      setEndOpen(false);
+                      setTab('setup');
+                    }
+                  }}
+                >
+                  End & Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div >
   );
 };
