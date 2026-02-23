@@ -3275,19 +3275,21 @@ const PickleballTournamentManager = () => {
             setPlayerStats(prev => {
               const updated = { ...prev };
               presentPlayers.forEach(p => {
-                if (updated[p.id]) {
-                  if (!playersInRound.has(p.id)) {
-                    // Player sat out this round — increment their cumulative sat-out count
-                    updated[p.id] = {
-                      ...updated[p.id],
-                      roundsSatOut: (updated[p.id].roundsSatOut || 0) + 1
-                    };
-                  }
-                  // NOTE: Do NOT reset roundsSatOut to 0 when player plays.
-                  // Historically resetting caused players who sat out frequently to lose their
-                  // priority the moment they finally got to play, leading to repeated sit-outs.
-                  // The cumulative total is used for scheduling priority.
+                // Auto-initialise entry if not present (e.g. round 1 when state starts empty)
+                if (!updated[p.id]) {
+                  updated[p.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1 };
                 }
+                if (!playersInRound.has(p.id)) {
+                  // Player sat out this round — increment their cumulative sat-out count
+                  updated[p.id] = {
+                    ...updated[p.id],
+                    roundsSatOut: (updated[p.id].roundsSatOut || 0) + 1
+                  };
+                }
+                // NOTE: Do NOT reset roundsSatOut to 0 when player plays.
+                // Historically resetting caused players who sat out frequently to lose their
+                // priority the moment they finally got to play, leading to repeated sit-outs.
+                // The cumulative total is used for scheduling priority.
               });
               return updated;
             });
@@ -4089,8 +4091,8 @@ const PickleballTournamentManager = () => {
                         key={p.id}
                         onClick={() => handlePlayerSelect(p)}
                         className={`flex items-center justify-between px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm ${teamBuilderSelected?.id === p.id
-                            ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
-                            : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
+                          ? 'border-brand-secondary bg-brand-secondary/20 font-semibold'
+                          : 'border-brand-gray bg-white hover:border-brand-secondary/50 hover:bg-brand-secondary/10'
                           }`}
                       >
                         <span>{p.name}</span>
@@ -4116,8 +4118,8 @@ const PickleballTournamentManager = () => {
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <span className="text-xs text-brand-primary/60">Avg {team.avgRating.toFixed(2)}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${team.gender === 'male_male' ? 'bg-blue-100 text-blue-700'
-                                : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
-                                  : 'bg-purple-100 text-purple-700'
+                              : team.gender === 'female_female' ? 'bg-pink-100 text-pink-700'
+                                : 'bg-purple-100 text-purple-700'
                               }`}>{team.gender === 'male_male' ? 'M/M' : team.gender === 'female_female' ? 'W/W' : 'Mixed'}</span>
                           </div>
                         </div>
