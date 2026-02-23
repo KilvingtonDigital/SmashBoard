@@ -4504,23 +4504,20 @@ const PickleballTournamentManager = () => {
                             </span>
                           )}
                         </div>
-
-                        {/* Full-width court header — immediately visible for scorekeepers */}
-                        <div className=\"-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 mb-3 px-4 py-2 bg-brand-primary rounded-t-2xl flex items-center justify-between\">
-                        <span className=\"text-white font-bold text-base tracking-wide\">
-                        🏓 Court {m.court}
-                      </span>
-                          {
-                        m.pointsForWin && (
-                          <span className=\"text-brand-secondary font-bold text-sm\">
-                    {m.pointsForWin} pts/win
-                  </span>
+                        {/* Full-width court header - immediately visible for scorekeepers */}
+                        <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 mb-3 px-4 py-2 bg-brand-primary rounded-t-2xl flex items-center justify-between">
+                          <span className="text-white font-bold text-base tracking-wide">
+                            Court {m.court}
+                          </span>
+                          {m.pointsForWin && (
+                            <span className="text-brand-secondary font-bold text-sm">
+                              {m.pointsForWin} pts/win
+                            </span>
                           )}
-                </div>
+                        </div>
 
-                        {/* Singles Format */ }
-              {
-                m.gameFormat === 'singles' && m.player1 && m.player2 ? (
+                        {/* Singles Format */}
+                        {m.gameFormat === 'singles' && m.player1 && m.player2 ? (
                   <>
                     <div className="mt-1">
                       <div className="font-semibold text-brand-primary text-sm">Player 1</div>
