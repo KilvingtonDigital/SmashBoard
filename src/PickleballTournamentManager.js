@@ -1564,10 +1564,16 @@ const PickleballTournamentManager = () => {
           presentPlayers.forEach(p => {
             const base = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), teammates: new Map() };
             const derived = derivedPlayerStats[p.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            // JSON.stringify/parse converts Maps to plain objects. Coerce back so
+            // .get() works in the scheduler after a session restore / hard refresh.
+            const rawOpponents = base.opponents;
+            const rawTeammates = base.teammates;
             schedulingStats[p.id] = {
               ...base,
-              roundsPlayed: derived.matchesPlayed,    // Use accurate derived count
-              roundsSatOut: derived.roundsSatOut,      // Use accurate derived sat-out count
+              opponents: rawOpponents instanceof Map ? rawOpponents : new Map(Object.entries(rawOpponents || {})),
+              teammates: rawTeammates instanceof Map ? rawTeammates : new Map(Object.entries(rawTeammates || {})),
+              roundsPlayed: derived.matchesPlayed,
+              roundsSatOut: derived.roundsSatOut,
             };
           });
           newRound = generateRoundRobinRound(presentPlayers, courts, schedulingStats, currentRound, separateBySkill, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval, rounds);
