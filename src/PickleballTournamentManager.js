@@ -400,6 +400,8 @@ const PickleballTournamentManager = () => {
   const [tournamentName, setTournamentName] = useState('');
   // Score entry bottom sheet
   const [scoreSheet, setScoreSheet] = useState(null); // { roundIdx, matchIdx } or null
+  // Help sheet
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Restore session on mount — backend first, localStorage as fallback
   useEffect(() => {
@@ -2007,14 +2009,23 @@ const PickleballTournamentManager = () => {
               </div>
             </div>
           </div>
-          {/* Right-side quick count pills — desktop only */}
-          <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
-            <span className="rounded-full bg-brand-secondary/20 px-2.5 py-0.5 text-brand-primary font-semibold">
-              {presentPlayers.length} present
-            </span>
-            <span className="rounded-full bg-brand-gray px-2.5 py-0.5 text-brand-primary">
-              Rd {currentRound}
-            </span>
+          {/* Right-side: pills (desktop) + always-visible ? help button */}
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
+              <span className="rounded-full bg-brand-secondary/20 px-2.5 py-0.5 text-brand-primary font-semibold">
+                {presentPlayers.length} present
+              </span>
+              <span className="rounded-full bg-brand-gray px-2.5 py-0.5 text-brand-primary">
+                Rd {currentRound}
+              </span>
+            </div>
+            <button
+              onClick={() => setHelpOpen(true)}
+              className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-brand-gray text-brand-primary/60 hover:border-brand-primary hover:text-brand-primary font-bold text-sm transition-colors"
+              aria-label="Help"
+            >
+              ?
+            </button>
           </div>
         </div>
       </div>
@@ -2308,6 +2319,20 @@ const PickleballTournamentManager = () => {
               </div>
             )}
 
+            {players.length === 0 && (
+              <div className="mt-4 rounded-2xl border-2 border-dashed border-brand-secondary/40 bg-brand-secondary/5 px-5 py-6 text-center">
+                <div className="text-3xl mb-2">👋</div>
+                <div className="font-bold text-brand-primary text-base mb-1">Add your first player</div>
+                <p className="text-sm text-brand-primary/70 leading-relaxed">
+                  Use the form below to add players.
+                  Then tap the <strong className="text-brand-primary">✓ circle</strong> next to each name to mark them as present today.
+                </p>
+                <div className="mt-3 text-xs text-brand-primary/50">
+                  Tip: you can add or remove players anytime, even mid-session.
+                </div>
+              </div>
+            )}
+
             <div className="mt-3 space-y-2">
               {players.map((p) => (
                 <div
@@ -2546,7 +2571,21 @@ const PickleballTournamentManager = () => {
             {((tournamentType === 'king_of_court' && gameFormat === 'teamed_doubles' && Object.keys(kotTeamStats).length === 0) ||
               (tournamentType === 'king_of_court' && gameFormat !== 'teamed_doubles' && Object.keys(kotStats).length === 0) ||
               (tournamentType === 'round_robin' && rounds.length === 0)) ? (
-              <p className="text-brand-primary/70">No rounds generated yet.</p>
+              <div className="py-8 text-center space-y-3">
+                <div className="text-4xl">📊</div>
+                <div className="font-bold text-brand-primary text-lg">No stats yet</div>
+                <p className="text-sm text-brand-primary/70 leading-relaxed max-w-xs mx-auto">
+                  Stats appear here automatically after you generate rounds on the
+                  <strong className="text-brand-primary"> Schedule</strong> tab and complete matches.
+                  No manual entry needed!
+                </p>
+                <button
+                  onClick={() => { setTab('schedule'); }}
+                  className="mt-2 inline-block px-5 py-2 rounded-xl bg-brand-primary text-white text-sm font-semibold"
+                >
+                  Go to Schedule →
+                </button>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -2807,16 +2846,25 @@ const PickleballTournamentManager = () => {
             <div className="border-t-2 border-brand-gray/40 pt-3">
               <h3 className="text-sm font-semibold text-brand-primary mb-3">Match History</h3>
               {rounds.length === 0 && (
-                <Card className="text-center py-8 sm:py-10">
-                  <div className="text-3xl sm:text-4xl mb-2">🗓️</div>
-                  <div className="text-base sm:text-lg font-semibold text-brand-primary">No matches yet</div>
-                  <p className="text-sm sm:text-base text-brand-primary/80 mt-1">
-                    {tournamentType === 'round_robin' ?
-                      'Assign matches to courts or use "Generate Next Round"' :
-                      'Click "Generate Next Round" to start'
-                    }
+                <div className="rounded-2xl border-2 border-dashed border-brand-gray bg-white px-5 py-8 text-center space-y-4">
+                  <div className="text-5xl">🎾</div>
+                  <div className="font-bold text-brand-primary text-xl">Ready to play?</div>
+                  <p className="text-sm text-brand-primary/70 leading-relaxed max-w-xs mx-auto">
+                    Here's how to get your first round going:
                   </p>
-                </Card>
+                  <div className="text-left space-y-3 max-w-xs mx-auto">
+                    {[
+                      { n: 1, text: 'Make sure players are marked present on the Roster tab' },
+                      { n: 2, text: 'Tap the green Generate First Round button above' },
+                      { n: 3, text: 'Assign each match to a court and let the games begin!' },
+                    ].map(s => (
+                      <div key={s.n} className="flex items-start gap-3">
+                        <span className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-white text-xs font-bold flex items-center justify-center">{s.n}</span>
+                        <span className="text-sm text-brand-primary/80 leading-relaxed pt-0.5">{s.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -3302,7 +3350,101 @@ const PickleballTournamentManager = () => {
         })()
       }
 
-    </div >
+      {/* ── Help Bottom Sheet ── */}
+      {helpOpen && (() => {
+        const HELP = {
+          setup: {
+            title: '⚙️ Setup',
+            subtitle: 'Configure your session before players arrive',
+            steps: [
+              { n: 1, head: 'Name your session', body: 'Type a name like "Monday Night Pickleball" so you can recognise it later.' },
+              { n: 2, head: 'Pick a format', body: 'Choose Doubles, Singles, or King of the Court. Not sure? Doubles is the most popular.' },
+              { n: 3, head: 'Set the number of courts', body: 'Enter how many courts you have available. The scheduler will fill them every round.' },
+              { n: 4, head: 'Tap "Lock & Generate"', body: 'Once you\'re happy with the settings, lock them and move to the Roster tab to add players.' },
+            ],
+          },
+          roster: {
+            title: '👥 Roster',
+            subtitle: 'Add players and mark who\'s here today',
+            steps: [
+              { n: 1, head: 'Add a player', body: 'Type their name and DUPR rating (skill number, e.g. 3.5), then tap "Add Player".' },
+              { n: 2, head: 'Mark who\'s present', body: 'Tap the circle ✓ next to a player\'s name to show they\'re on court today. Tap again to mark them absent.' },
+              { n: 3, head: 'Edit anytime', body: 'You can add or remove players mid-session. Their previous round stats are always preserved.' },
+            ],
+          },
+          schedule: {
+            title: '📋 Schedule',
+            subtitle: 'Run your rounds step by step',
+            steps: [
+              { n: 1, head: 'Generate a round', body: 'Tap the green "Generate First Round" button. The app automatically balances teams by skill and fairness.' },
+              { n: 2, head: 'Assign matches to courts', body: 'Each court card shows a match. Tap "Assign Match" to send it to that court, then players head out to play.' },
+              { n: 3, head: 'Mark matches complete', body: 'When a game finishes, tap "✓ Complete Match" on that court\'s card. The court is then ready for the next match.' },
+              { n: 4, head: 'Start the next round', body: 'When all courts are ready, the "Start Round" button appears at the top. Tap it to generate new matchups.' },
+            ],
+          },
+          stats: {
+            title: '📊 Stats',
+            subtitle: 'Track how everyone is doing',
+            steps: [
+              { n: 1, head: 'Stats update automatically', body: 'Every time you complete a match, player stats update here — no manual entry needed.' },
+              { n: 2, head: 'King of the Court', body: 'In KOT mode, this tab shows the leaderboard with points, crown wins, and current court.' },
+              { n: 3, head: 'Round Robin', body: 'In Round Robin mode, you can see how many rounds each player has played or sat out — so no one gets left out.' },
+            ],
+          },
+        };
+
+        const guide = HELP[tab] || HELP.schedule;
+
+        return (
+          <>
+            <div className="fixed inset-0 z-[60] bg-black/40" onClick={() => setHelpOpen(false)} />
+            <div className="fixed inset-x-0 bottom-0 z-[70] sheet-enter rounded-t-2xl bg-white shadow-2xl pb-safe max-h-[85vh] overflow-y-auto">
+              {/* Pull handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-gray-300" />
+              </div>
+
+              <div className="px-5 pb-6 pt-2 space-y-5">
+                {/* Header */}
+                <div>
+                  <div className="text-xl font-bold text-brand-primary">{guide.title}</div>
+                  <div className="text-sm text-brand-primary/60 mt-0.5">{guide.subtitle}</div>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-4">
+                  {guide.steps.map(step => (
+                    <div key={step.n} className="flex gap-4">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-brand-primary text-white font-bold text-sm flex items-center justify-center">
+                        {step.n}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-brand-primary text-base leading-snug">{step.head}</div>
+                        <div className="text-sm text-brand-primary/70 mt-0.5 leading-relaxed">{step.body}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tip */}
+                <div className="rounded-xl bg-brand-secondary/10 border border-brand-secondary/30 px-4 py-3 text-sm text-brand-primary/80">
+                  💡 <strong>Tip:</strong> Tap the <strong>?</strong> button anytime on any tab to see that tab's guide.
+                </div>
+
+                {/* Dismiss */}
+                <button
+                  onClick={() => setHelpOpen(false)}
+                  className="w-full h-14 rounded-2xl bg-brand-primary text-white font-bold text-base shadow"
+                >
+                  Got it ✓
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+    </div>
   );
 };
 
