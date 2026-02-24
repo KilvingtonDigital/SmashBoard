@@ -1912,6 +1912,8 @@ const PickleballTournamentManager = () => {
       // Round-robin teamed doubles: show per-team stats from teamStats
       if (Object.keys(teamStats).length === 0 && rounds.length === 0) return null;
 
+      const presentIds = new Set(presentPlayers.map(p => p.id));
+
       const stats = teams.map(team => {
         const stat = teamStats[team.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1 };
         return {
@@ -1919,7 +1921,9 @@ const PickleballTournamentManager = () => {
           isTeam: true,
           roundsPlayed: stat.roundsPlayed || 0,
           roundsSatOut: stat.roundsSatOut || 0,
-          totalRounds: (stat.roundsPlayed || 0) + (stat.roundsSatOut || 0)
+          totalRounds: (stat.roundsPlayed || 0) + (stat.roundsSatOut || 0),
+          // A team is present if both players are still checked in
+          present: presentIds.has(team.player1?.id) && presentIds.has(team.player2?.id),
         };
       }).sort((a, b) => a.roundsSatOut - b.roundsSatOut || b.roundsPlayed - a.roundsPlayed);
 
