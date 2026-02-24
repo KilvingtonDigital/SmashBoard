@@ -2266,7 +2266,7 @@ const PickleballTournamentManager = () => {
 
               <details className="mt-3">
                 <summary className="cursor-pointer text-sm text-brand-primary/80">
-                  Bulk add (one per line: <em>Name, Rating, Gender</em>)
+                  Add multiple players at once <em>(one per line: Name, Rating, Gender)</em>
                 </summary>
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <textarea
