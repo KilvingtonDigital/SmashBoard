@@ -1541,8 +1541,15 @@ const PickleballTournamentManager = () => {
           teams.forEach(t => {
             const base = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
             const derived = derivedTeamStats[t.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            // JSON.stringify/parse converts Maps → plain objects. Coerce back to Map so
+            // .get() works in the scheduler after a hard refresh restores from localStorage.
+            const rawOpponents = base.opponents;
+            const opponents = rawOpponents instanceof Map
+              ? rawOpponents
+              : new Map(Object.entries(rawOpponents || {}));
             teamSchedulingStats[t.id] = {
               ...base,
+              opponents,
               roundsPlayed: derived.matchesPlayed,   // accurate ground-truth played count
               roundsSatOut: derived.roundsSatOut,     // accurate ground-truth sat-out count
             };

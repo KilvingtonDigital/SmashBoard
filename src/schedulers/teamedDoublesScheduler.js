@@ -89,6 +89,9 @@ export const generateTeamedDoublesRound = (teams, courts, teamStats, currentRoun
                 lastPlayedRound: -1,
                 opponents: new Map(),
             };
+        } else if (!(teamStats[team.id].opponents instanceof Map)) {
+            // JSON.stringify/parse converts Map → plain object {}. Coerce back.
+            teamStats[team.id].opponents = new Map(Object.entries(teamStats[team.id].opponents || {}));
         }
     });
 
