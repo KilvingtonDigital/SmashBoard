@@ -2652,12 +2652,12 @@ const PickleballTournamentManager = () => {
                     const statusStrip = isPlaying
                       ? 'bg-green-500'
                       : isCleaning
-                        ? 'bg-yellow-400'
+                        ? 'bg-orange-400'
                         : 'bg-brand-gray';
                     const cardBorder = isPlaying
                       ? 'border-green-400'
                       : isCleaning
-                        ? 'border-yellow-400'
+                        ? 'border-orange-400'
                         : 'border-brand-gray';
 
                     const cm = court.currentMatch;
@@ -2707,7 +2707,7 @@ const PickleballTournamentManager = () => {
                                 ✓ Complete Match
                               </Button>
                               <Button
-                                className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 w-full h-12 text-sm font-semibold"
+                                className="bg-orange-100 text-orange-800 hover:bg-orange-200 w-full h-12 text-sm font-semibold"
                                 onClick={() => completeCourtMatch(court.courtNumber, 'cleaning')}
                               >
                                 🧹 Set Cleaning
