@@ -1984,7 +1984,7 @@ const PickleballTournamentManager = () => {
   };
 
   return (
-    <div className="min-h-screen bg-brand-light pb-24">
+    <div className="min-h-screen bg-brand-light pb-40">
       {addNote && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[120] bg-brand-secondary text-brand-primary px-3 py-2 rounded-xl shadow">
           {addNote}
