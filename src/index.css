@@ -97,3 +97,14 @@ select {
     overflow-x: auto;
   }
 }
+
+/* ===== Score Entry Bottom Sheet ===== */
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.sheet-enter {
+  animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
