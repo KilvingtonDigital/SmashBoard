@@ -2191,23 +2191,6 @@ const PickleballTournamentManager = () => {
                   </>
                 )}
               </div>
-              <div className="mt-3 sm:mt-4 grid grid-cols-1 gap-2">
-                <Button
-                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full"
-                  onClick={() => setTab('roster')}
-                >
-                  Continue to Roster
-                </Button>
-                {rounds.length > 0 && (
-                  <Button
-                    className="bg-red-500 text-white hover:bg-red-600 w-full"
-                    onClick={clearAllRounds}
-                  >
-                    Clear All Rounds
-                  </Button>
-                )}
-              </div>
-
               {rounds.length > 0 && tournamentType === 'round_robin' && (
                 <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="text-xs text-blue-800">
@@ -2300,6 +2283,24 @@ const PickleballTournamentManager = () => {
                   </div>
                 </div>
               </details>
+
+              {/* Continue button lives here so mobile flow is: settings → add players → continue */}
+              <div className="mt-4 pt-3 border-t border-brand-gray/40 grid grid-cols-1 gap-2">
+                <Button
+                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full h-14 text-base font-bold"
+                  onClick={() => setTab('roster')}
+                >
+                  Continue to Roster →
+                </Button>
+                {rounds.length > 0 && (
+                  <Button
+                    className="bg-red-500 text-white hover:bg-red-600 w-full"
+                    onClick={clearAllRounds}
+                  >
+                    Clear All Rounds
+                  </Button>
+                )}
+              </div>
             </Card>
           </div>
         )}
@@ -3360,7 +3361,7 @@ const PickleballTournamentManager = () => {
               { n: 1, head: 'Name your session', body: 'Type a name like "Monday Night Pickleball" so you can recognise it later.' },
               { n: 2, head: 'Pick a format', body: 'Choose Doubles, Singles, or King of the Court. Not sure? Doubles is the most popular.' },
               { n: 3, head: 'Set the number of courts', body: 'Enter how many courts you have available. The scheduler will fill them every round.' },
-              { n: 4, head: 'Tap "Lock & Generate"', body: 'Once you\'re happy with the settings, lock them and move to the Roster tab to add players.' },
+              { n: 4, head: 'Tap "Continue to Roster"', body: 'When your settings look good, tap the green button to move to the Roster tab — then add players and tap the ✓ circle next to each person who is on-site and ready to play.' },
             ],
           },
           roster: {
