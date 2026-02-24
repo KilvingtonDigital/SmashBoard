@@ -1220,10 +1220,10 @@ const PickleballTournamentManager = () => {
     setTeamStats(prev => {
       const updated = { ...prev };
       if (!updated[team1.id]) {
-        updated[team1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), totalPlayMinutes: 0 };
+        updated[team1.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: {}, totalPlayMinutes: 0 };
       }
       if (!updated[team2.id]) {
-        updated[team2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), totalPlayMinutes: 0 };
+        updated[team2.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: {}, totalPlayMinutes: 0 };
       }
       return updated;
     });
