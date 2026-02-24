@@ -658,24 +658,43 @@ const PickleballTournamentManager = () => {
     return stats;
   }, [rounds]); // removed presentPlayers dependency — sat-out universe is now match-history only
 
-  // Derive accurate team stats from rounds history
+  // Derive accurate team stats from rounds history (ground-truth, like derivedPlayerStats)
   const derivedTeamStats = useMemo(() => {
     const stats = {};
+
+    // Pass 1: count matches played per team
+    const everPlayedTeamIds = new Set();
     rounds.forEach(round => {
-      const teamsInRound = new Set();
       round.forEach(match => {
-        if (match.team1Id) teamsInRound.add(match.team1Id);
-        if (match.team2Id) teamsInRound.add(match.team2Id);
         if (match.team1Id) {
           if (!stats[match.team1Id]) stats[match.team1Id] = { matchesPlayed: 0, roundsSatOut: 0 };
           stats[match.team1Id].matchesPlayed += 1;
+          everPlayedTeamIds.add(match.team1Id);
         }
         if (match.team2Id) {
           if (!stats[match.team2Id]) stats[match.team2Id] = { matchesPlayed: 0, roundsSatOut: 0 };
           stats[match.team2Id].matchesPlayed += 1;
+          everPlayedTeamIds.add(match.team2Id);
         }
       });
     });
+
+    // Pass 2: count sat-out rounds for teams that have appeared at least once
+    rounds.forEach(round => {
+      if (round.length === 0) return;
+      const teamsInRound = new Set();
+      round.forEach(match => {
+        if (match.team1Id) teamsInRound.add(match.team1Id);
+        if (match.team2Id) teamsInRound.add(match.team2Id);
+      });
+      everPlayedTeamIds.forEach(id => {
+        if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
+        if (!teamsInRound.has(id)) {
+          stats[id].roundsSatOut += 1;
+        }
+      });
+    });
+
     return stats;
   }, [rounds]);
 
@@ -1515,7 +1534,20 @@ const PickleballTournamentManager = () => {
           newRound = generateSinglesRound(presentPlayers, courts, playerStats, currentRound, effectiveMatchFormat);
         } else if (gameFormat === 'teamed_doubles') {
           if (teams.length < 2) return alert('Need at least 2 teams for teamed doubles');
-          newRound = generateTeamedDoublesRound(teams, courts, teamStats, currentRound, effectiveMatchFormat);
+          // Build merged stats for scheduling: use derivedTeamStats for accurate played/satOut counts,
+          // but keep teamStats for the opponents Map (repeat-matchup tracking).
+          // This mirrors the exact pattern used for regular doubles.
+          const teamSchedulingStats = {};
+          teams.forEach(t => {
+            const base = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+            const derived = derivedTeamStats[t.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            teamSchedulingStats[t.id] = {
+              ...base,
+              roundsPlayed: derived.matchesPlayed,   // accurate ground-truth played count
+              roundsSatOut: derived.roundsSatOut,     // accurate ground-truth sat-out count
+            };
+          });
+          newRound = generateTeamedDoublesRound(teams, courts, teamSchedulingStats, currentRound, effectiveMatchFormat);
         } else {
           // Regular doubles with random pairing
           if (presentPlayers.length < 4) return alert('Need at least 4 present players');
@@ -1582,23 +1614,10 @@ const PickleballTournamentManager = () => {
           });
 
           if (gameFormat === 'teamed_doubles') {
-            setTeamStats(prev => {
-              const updated = { ...prev };
-              // We need to know which teams are playing.
-              // But simpler: just iterate all teams. If team members are in playersInRound, they are playing.
-              // Actually, team stats has roundsSatOut too.
-              teams.forEach(t => {
-                const isPlaying = newRound.some(m => m.team1Id === t.id || m.team2Id === t.id);
-                if (updated[t.id]) {
-                  if (!isPlaying) {
-                    // Increment cumulative sat-out count (do NOT reset when playing — scheduler needs the historical total)
-                    updated[t.id] = { ...updated[t.id], roundsSatOut: (updated[t.id].roundsSatOut || 0) + 1 };
-                  }
-                  // NOTE: Do NOT reset roundsSatOut to 0 when team plays — same reasoning as regular doubles.
-                }
-              });
-              return updated;
-            });
+            // NOTE: roundsSatOut is already incremented inside generateTeamedDoublesRound
+            // (via updateTeamStatsForRound). We must NOT increment again here or sit-outs
+            // will be double-counted (one increment from the scheduler + one from here = 2x per round).
+            // Nothing to do for teamed_doubles — the scheduler handles it.
           } else {
             setPlayerStats(prev => {
               const updated = { ...prev };
@@ -1909,19 +1928,21 @@ const PickleballTournamentManager = () => {
         return stats;
       }
     } else if (gameFormat === 'teamed_doubles') {
-      // Round-robin teamed doubles: show per-team stats from teamStats
-      if (Object.keys(teamStats).length === 0 && rounds.length === 0) return null;
+      // Round-robin teamed doubles: use derivedTeamStats (computed from rounds history)
+      // to avoid double-counting from the scheduler's in-place mutation of teamStats.
+      if (rounds.length === 0) return null;
 
       const presentIds = new Set(presentPlayers.map(p => p.id));
 
       const stats = teams.map(team => {
-        const stat = teamStats[team.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1 };
+        // Use derivedTeamStats as ground truth for played/satOut, fall back to 0
+        const stat = derivedTeamStats[team.id] || { matchesPlayed: 0, roundsSatOut: 0 };
         return {
           ...team,
           isTeam: true,
-          roundsPlayed: stat.roundsPlayed || 0,
+          roundsPlayed: stat.matchesPlayed || 0,
           roundsSatOut: stat.roundsSatOut || 0,
-          totalRounds: (stat.roundsPlayed || 0) + (stat.roundsSatOut || 0),
+          totalRounds: (stat.matchesPlayed || 0) + (stat.roundsSatOut || 0),
           // A team is present if both players are still checked in
           present: presentIds.has(team.player1?.id) && presentIds.has(team.player2?.id),
         };
