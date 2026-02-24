@@ -3,6 +3,10 @@
  * Fully self-contained scheduler for Round Robin Doubles.
  * ISOLATION RULE: Only imports from shared.js. Never imports from other schedulers.
  * To apply a bug fix from here to another format, that must be a deliberate separate change.
+ *
+ * NOTE: opponents and teammates are stored as plain objects { [id]: count }, NOT Maps.
+ * This is intentional — Maps silently become {} when passed through JSON.stringify/parse
+ * (localStorage / cloud session restore), causing .get() to crash on the next round.
  */
 
 import { uid, avg, SKILL_LEVELS, getPlayerSkillLevel, canPlayTogether, separatePlayersBySkill } from './shared';
@@ -19,12 +23,15 @@ const initializePlayerStats = (playerStats, presentPlayers) => {
                 roundsSatOut: 0,
                 consecutiveRounds: 0,
                 lastPlayedRound: -1,
-                teammates: new Map(),
-                opponents: new Map(),
+                teammates: {},   // plain object — survives JSON round-trips
+                opponents: {},   // plain object — survives JSON round-trips
             };
         } else {
             updatedStats[p.id].player = p;
             if (updatedStats[p.id].consecutiveRounds === undefined) updatedStats[p.id].consecutiveRounds = 0;
+            // Defensive: coerce any legacy Maps that might have snuck in via old saved state
+            if (!updatedStats[p.id].teammates || updatedStats[p.id].teammates instanceof Map) updatedStats[p.id].teammates = {};
+            if (!updatedStats[p.id].opponents || updatedStats[p.id].opponents instanceof Map) updatedStats[p.id].opponents = {};
         }
     });
     return updatedStats;
@@ -157,10 +164,10 @@ const findBestTeamSplit = (group, playerStats, preferMixedDoubles = false) => {
         let score = 0;
         score += Math.abs(avg(split.team1) - avg(split.team2)) * 10;
 
-        const stats1 = playerStats[split.team1[0].id] || { teammates: new Map() };
-        const stats2 = playerStats[split.team2[0].id] || { teammates: new Map() };
-        const team1History = stats1.teammates.get(split.team1[1].id) || 0;
-        const team2History = stats2.teammates.get(split.team2[1].id) || 0;
+        const stats1 = playerStats[split.team1[0].id] || { teammates: {} };
+        const stats2 = playerStats[split.team2[0].id] || { teammates: {} };
+        const team1History = (stats1.teammates || {})[split.team1[1].id] || 0;
+        const team2History = (stats2.teammates || {})[split.team2[1].id] || 0;
         score += (team1History + team2History) * 15;
 
         const level1 = getPlayerSkillLevel(split.team1[0].rating);
@@ -191,8 +198,8 @@ const evaluateGroupQuality = (group, playerStats) => {
 
     for (let i = 0; i < group.length; i++) {
         for (let j = i + 1; j < group.length; j++) {
-            const stats = playerStats[group[i].id] || { teammates: new Map() };
-            penalty += (stats.teammates.get(group[j].id) || 0) * 10;
+            const stats = playerStats[group[i].id] || { teammates: {} };
+            penalty += ((stats.teammates || {})[group[j].id] || 0) * 10;
         }
     }
 
@@ -228,8 +235,8 @@ const selectBestGroupOfFour = (availablePlayers, playerStats) => {
                 const scores = candidates.map(candidate => {
                     let varietyScore = 0;
                     group.forEach(existing => {
-                        const stats = playerStats[existing.id] || { teammates: new Map() };
-                        varietyScore += Math.max(0, 5 - (stats.teammates.get(candidate.id) || 0));
+                        const stats = playerStats[existing.id] || { teammates: {} };
+                        varietyScore += Math.max(0, 5 - ((stats.teammates || {})[candidate.id] || 0));
                     });
                     if (group.every(existing => canPlayTogether(existing, candidate))) varietyScore += 2;
                     varietyScore += Math.random() * 2;
@@ -327,18 +334,24 @@ const updatePlayerStatsForRound = (playerStats, presentPlayers, matches, roundId
         const { team1, team2 } = match;
         if (team1?.length === 2) {
             const [p1, p2] = team1;
-            playerStats[p1.id].teammates.set(p2.id, (playerStats[p1.id].teammates.get(p2.id) || 0) + 1);
-            playerStats[p2.id].teammates.set(p1.id, (playerStats[p2.id].teammates.get(p1.id) || 0) + 1);
+            if (!playerStats[p1.id].teammates) playerStats[p1.id].teammates = {};
+            if (!playerStats[p2.id].teammates) playerStats[p2.id].teammates = {};
+            playerStats[p1.id].teammates[p2.id] = (playerStats[p1.id].teammates[p2.id] || 0) + 1;
+            playerStats[p2.id].teammates[p1.id] = (playerStats[p2.id].teammates[p1.id] || 0) + 1;
         }
         if (team2?.length === 2) {
             const [p1, p2] = team2;
-            playerStats[p1.id].teammates.set(p2.id, (playerStats[p1.id].teammates.get(p2.id) || 0) + 1);
-            playerStats[p2.id].teammates.set(p1.id, (playerStats[p2.id].teammates.get(p1.id) || 0) + 1);
+            if (!playerStats[p1.id].teammates) playerStats[p1.id].teammates = {};
+            if (!playerStats[p2.id].teammates) playerStats[p2.id].teammates = {};
+            playerStats[p1.id].teammates[p2.id] = (playerStats[p1.id].teammates[p2.id] || 0) + 1;
+            playerStats[p2.id].teammates[p1.id] = (playerStats[p2.id].teammates[p1.id] || 0) + 1;
         }
         team1?.forEach(p1 => {
             team2?.forEach(p2 => {
-                playerStats[p1.id].opponents.set(p2.id, (playerStats[p1.id].opponents.get(p2.id) || 0) + 1);
-                playerStats[p2.id].opponents.set(p1.id, (playerStats[p2.id].opponents.get(p1.id) || 0) + 1);
+                if (!playerStats[p1.id].opponents) playerStats[p1.id].opponents = {};
+                if (!playerStats[p2.id].opponents) playerStats[p2.id].opponents = {};
+                playerStats[p1.id].opponents[p2.id] = (playerStats[p1.id].opponents[p2.id] || 0) + 1;
+                playerStats[p2.id].opponents[p1.id] = (playerStats[p2.id].opponents[p1.id] || 0) + 1;
             });
         });
     });

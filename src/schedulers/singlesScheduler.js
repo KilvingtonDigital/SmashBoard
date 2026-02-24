@@ -3,6 +3,10 @@
  * Fully self-contained scheduler for Round Robin Singles.
  * ISOLATION RULE: Only imports from shared.js. Never imports from other schedulers.
  * To apply a bug fix from here to another format, that must be a deliberate separate change.
+ *
+ * NOTE: opponents is stored as a plain object { [id]: count }, NOT a Map.
+ * Maps silently become {} through JSON.stringify/parse (localStorage / session restore),
+ * causing .get() to crash. Plain objects are JSON-safe.
  */
 
 import { uid, SKILL_LEVELS, getPlayerSkillLevel } from './shared';
@@ -17,10 +21,14 @@ const initializePlayerStats = (playerStats, presentPlayers) => {
                 roundsPlayed: 0,
                 roundsSatOut: 0,
                 lastPlayedRound: -1,
-                opponents: new Map(),
+                opponents: {},   // plain object — survives JSON round-trips
             };
         } else {
             updatedStats[p.id].player = p;
+            // Defensive: coerce any legacy Maps that might have snuck in via old saved state
+            if (!updatedStats[p.id].opponents || updatedStats[p.id].opponents instanceof Map) {
+                updatedStats[p.id].opponents = {};
+            }
         }
     });
     return updatedStats;
@@ -85,10 +93,10 @@ const updatePlayerStatsForSinglesRound = (playerStats, presentPlayers, matches, 
     // Track opponents
     matches.forEach(match => {
         const { player1, player2 } = match;
-        if (!playerStats[player1.id].opponents) playerStats[player1.id].opponents = new Map();
-        if (!playerStats[player2.id].opponents) playerStats[player2.id].opponents = new Map();
-        playerStats[player1.id].opponents.set(player2.id, (playerStats[player1.id].opponents.get(player2.id) || 0) + 1);
-        playerStats[player2.id].opponents.set(player1.id, (playerStats[player2.id].opponents.get(player1.id) || 0) + 1);
+        if (!playerStats[player1.id].opponents) playerStats[player1.id].opponents = {};
+        if (!playerStats[player2.id].opponents) playerStats[player2.id].opponents = {};
+        playerStats[player1.id].opponents[player2.id] = (playerStats[player1.id].opponents[player2.id] || 0) + 1;
+        playerStats[player2.id].opponents[player1.id] = (playerStats[player2.id].opponents[player1.id] || 0) + 1;
     });
 };
 

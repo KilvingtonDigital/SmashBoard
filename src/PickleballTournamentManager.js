@@ -964,8 +964,8 @@ const PickleballTournamentManager = () => {
           roundsPlayed: 0,
           roundsSatOut: 0,
           lastPlayedRound: -1,
-          opponents: new Map(),
-          teammates: new Map(),
+          opponents: {},
+          teammates: {},
           totalPlayMinutes: 0
         };
       }
@@ -974,8 +974,8 @@ const PickleballTournamentManager = () => {
           roundsPlayed: 0,
           roundsSatOut: 0,
           lastPlayedRound: -1,
-          opponents: new Map(),
-          teammates: new Map(),
+          opponents: {},
+          teammates: {},
           totalPlayMinutes: 0
         };
       }
@@ -1082,8 +1082,8 @@ const PickleballTournamentManager = () => {
             roundsPlayed: 0,
             roundsSatOut: 0,
             lastPlayedRound: -1,
-            opponents: new Map(),
-            teammates: new Map(),
+            opponents: {},
+            teammates: {},
             totalPlayMinutes: 0
           };
         }
@@ -1531,25 +1531,31 @@ const PickleballTournamentManager = () => {
         // Check game format
         if (gameFormat === 'singles') {
           if (presentPlayers.length < 2) return alert('Need at least 2 present players for singles');
-          newRound = generateSinglesRound(presentPlayers, courts, playerStats, currentRound, effectiveMatchFormat);
+          // Build merged stats: use derivedPlayerStats for accurate played/satOut counts,
+          // keep playerStats for opponent history (which derivedPlayerStats doesn't track).
+          const singlesStats = {};
+          presentPlayers.forEach(p => {
+            const base = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: {} };
+            const derived = derivedPlayerStats[p.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+            singlesStats[p.id] = {
+              ...base,
+              opponents: (base.opponents && !(base.opponents instanceof Map)) ? base.opponents : {},
+              roundsPlayed: derived.matchesPlayed,
+              roundsSatOut: derived.roundsSatOut,
+            };
+          });
+          newRound = generateSinglesRound(presentPlayers, courts, singlesStats, currentRound, effectiveMatchFormat);
         } else if (gameFormat === 'teamed_doubles') {
           if (teams.length < 2) return alert('Need at least 2 teams for teamed doubles');
-          // Build merged stats for scheduling: use derivedTeamStats for accurate played/satOut counts,
-          // but keep teamStats for the opponents Map (repeat-matchup tracking).
-          // This mirrors the exact pattern used for regular doubles.
+          // Build merged stats: use derivedTeamStats for accurate played/satOut counts,
+          // keep teamStats for opponent history. Opponents are plain objects (JSON-safe).
           const teamSchedulingStats = {};
           teams.forEach(t => {
-            const base = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map() };
+            const base = teamStats[t.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: {} };
             const derived = derivedTeamStats[t.id] || { matchesPlayed: 0, roundsSatOut: 0 };
-            // JSON.stringify/parse converts Maps → plain objects. Coerce back to Map so
-            // .get() works in the scheduler after a hard refresh restores from localStorage.
-            const rawOpponents = base.opponents;
-            const opponents = rawOpponents instanceof Map
-              ? rawOpponents
-              : new Map(Object.entries(rawOpponents || {}));
             teamSchedulingStats[t.id] = {
               ...base,
-              opponents,
+              opponents: (base.opponents && !(base.opponents instanceof Map)) ? base.opponents : {},
               roundsPlayed: derived.matchesPlayed,   // accurate ground-truth played count
               roundsSatOut: derived.roundsSatOut,     // accurate ground-truth sat-out count
             };
@@ -1558,20 +1564,16 @@ const PickleballTournamentManager = () => {
         } else {
           // Regular doubles with random pairing
           if (presentPlayers.length < 4) return alert('Need at least 4 present players');
-          // Build merged stats for scheduling: use derivedPlayerStats for accurate played/satOut counts,
-          // but keep imperative playerStats for teammate/opponent history which derivedPlayerStats doesn't track
+          // Build merged stats: use derivedPlayerStats for accurate played/satOut counts,
+          // keep playerStats for teammate/opponent history. All plain objects — JSON-safe.
           const schedulingStats = {};
           presentPlayers.forEach(p => {
-            const base = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: new Map(), teammates: new Map() };
+            const base = playerStats[p.id] || { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1, opponents: {}, teammates: {} };
             const derived = derivedPlayerStats[p.id] || { matchesPlayed: 0, roundsSatOut: 0 };
-            // JSON.stringify/parse converts Maps to plain objects. Coerce back so
-            // .get() works in the scheduler after a session restore / hard refresh.
-            const rawOpponents = base.opponents;
-            const rawTeammates = base.teammates;
             schedulingStats[p.id] = {
               ...base,
-              opponents: rawOpponents instanceof Map ? rawOpponents : new Map(Object.entries(rawOpponents || {})),
-              teammates: rawTeammates instanceof Map ? rawTeammates : new Map(Object.entries(rawTeammates || {})),
+              opponents: (base.opponents && !(base.opponents instanceof Map)) ? base.opponents : {},
+              teammates: (base.teammates && !(base.teammates instanceof Map)) ? base.teammates : {},
               roundsPlayed: derived.matchesPlayed,
               roundsSatOut: derived.roundsSatOut,
             };

@@ -3,6 +3,10 @@
  * Fully self-contained scheduler for Round Robin Teamed Doubles.
  * ISOLATION RULE: Only imports from shared.js. Never imports from other schedulers.
  * To apply a bug fix from here to another format, that must be a deliberate separate change.
+ *
+ * NOTE: opponents is stored as a plain object { [id]: count }, NOT a Map.
+ * Maps silently become {} through JSON.stringify/parse (localStorage / session restore),
+ * causing .get() to crash. Plain objects are JSON-safe.
  */
 
 import { uid } from './shared';
@@ -54,16 +58,12 @@ const updateTeamStatsForRound = (teamStats, allTeams, matches, roundIdx) => {
         }
     });
 
-    // Track opponents
+    // Track opponents (plain object — survives JSON round-trips)
     matches.forEach(match => {
-        teamStats[match.team1Id].opponents.set(
-            match.team2Id,
-            (teamStats[match.team1Id].opponents.get(match.team2Id) || 0) + 1
-        );
-        teamStats[match.team2Id].opponents.set(
-            match.team1Id,
-            (teamStats[match.team2Id].opponents.get(match.team1Id) || 0) + 1
-        );
+        if (!teamStats[match.team1Id].opponents) teamStats[match.team1Id].opponents = {};
+        if (!teamStats[match.team2Id].opponents) teamStats[match.team2Id].opponents = {};
+        teamStats[match.team1Id].opponents[match.team2Id] = (teamStats[match.team1Id].opponents[match.team2Id] || 0) + 1;
+        teamStats[match.team2Id].opponents[match.team1Id] = (teamStats[match.team2Id].opponents[match.team1Id] || 0) + 1;
     });
 };
 
@@ -80,18 +80,20 @@ export const generateTeamedDoublesRound = (teams, courts, teamStats, currentRoun
     console.log(`\n=== [TEAMED DOUBLES SCHEDULER] GENERATING ROUND ${currentRoundIndex + 1} ===`);
     console.log(`Total teams: ${teams.length}, Courts: ${courts}`);
 
-    // Initialise stats for any new teams
+    // Initialise stats for any new teams; coerce legacy Maps to plain objects
     teams.forEach(team => {
         if (!teamStats[team.id]) {
             teamStats[team.id] = {
                 roundsPlayed: 0,
                 roundsSatOut: 0,
                 lastPlayedRound: -1,
-                opponents: new Map(),
+                opponents: {},   // plain object — survives JSON round-trips
             };
-        } else if (!(teamStats[team.id].opponents instanceof Map)) {
-            // JSON.stringify/parse converts Map → plain object {}. Coerce back.
-            teamStats[team.id].opponents = new Map(Object.entries(teamStats[team.id].opponents || {}));
+        } else {
+            // Defensive: coerce any legacy Map or missing field
+            if (!teamStats[team.id].opponents || teamStats[team.id].opponents instanceof Map) {
+                teamStats[team.id].opponents = {};
+            }
         }
     });
 
@@ -126,7 +128,8 @@ export const generateTeamedDoublesRound = (teams, courts, teamStats, currentRoun
             for (let i = 0; i < remainingTeams.length - 1; i++) {
                 for (let j = i + 1; j < remainingTeams.length; j++) {
                     const diff = Math.abs(remainingTeams[i].avgRating - remainingTeams[j].avgRating);
-                    const playedBefore = teamStats[remainingTeams[i].id].opponents.get(remainingTeams[j].id) || 0;
+                    const opponents = teamStats[remainingTeams[i].id].opponents || {};
+                    const playedBefore = opponents[remainingTeams[j].id] || 0;
                     const adjustedDiff = diff + playedBefore * 2;
                     if (adjustedDiff < smallestDiff) {
                         smallestDiff = adjustedDiff;
