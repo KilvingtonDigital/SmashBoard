@@ -1138,14 +1138,14 @@ const PickleballTournamentManager = () => {
       // Score each potential opponent
       const scoredOpponents = potentialOpponents.map(team => {
         let score = 0;
-        const stats1 = teamStats[team1.id] || { opponents: new Map() };
+        const stats1 = teamStats[team1.id] || { opponents: {} };
 
         // Penalty for rating difference (prefer close ratings)
         const ratingDiff = Math.abs(team1.avgRating - team.avgRating);
         score += ratingDiff * 10;
 
         // Penalty for repeated matchups
-        const timesPlayed = stats1.opponents?.get(team.id) || 0;
+        const timesPlayed = (stats1.opponents || {})[team.id] || 0;
         score += timesPlayed * 20;
 
         // Small bonus for teams that have played fewer matches overall
@@ -1340,10 +1340,10 @@ const PickleballTournamentManager = () => {
 
         // Update opponent history
         if (updated[match.team1Id] && updated[match.team2Id]) {
-          if (!updated[match.team1Id].opponents) updated[match.team1Id].opponents = new Map();
-          if (!updated[match.team2Id].opponents) updated[match.team2Id].opponents = new Map();
-          updated[match.team1Id].opponents.set(match.team2Id, (updated[match.team1Id].opponents.get(match.team2Id) || 0) + 1);
-          updated[match.team2Id].opponents.set(match.team1Id, (updated[match.team2Id].opponents.get(match.team1Id) || 0) + 1);
+          if (!updated[match.team1Id].opponents || updated[match.team1Id].opponents instanceof Map) updated[match.team1Id].opponents = {};
+          if (!updated[match.team2Id].opponents || updated[match.team2Id].opponents instanceof Map) updated[match.team2Id].opponents = {};
+          updated[match.team1Id].opponents[match.team2Id] = (updated[match.team1Id].opponents[match.team2Id] || 0) + 1;
+          updated[match.team2Id].opponents[match.team1Id] = (updated[match.team2Id].opponents[match.team1Id] || 0) + 1;
         }
 
         // Update rounds played and play time
@@ -1376,10 +1376,10 @@ const PickleballTournamentManager = () => {
         if (match.team1 && match.team1.length === 2) {
           const [p1, p2] = match.team1;
           if (updated[p1.id] && updated[p2.id]) {
-            if (!updated[p1.id].teammates) updated[p1.id].teammates = new Map();
-            if (!updated[p2.id].teammates) updated[p2.id].teammates = new Map();
-            updated[p1.id].teammates.set(p2.id, (updated[p1.id].teammates.get(p2.id) || 0) + 1);
-            updated[p2.id].teammates.set(p1.id, (updated[p2.id].teammates.get(p1.id) || 0) + 1);
+            if (!updated[p1.id].teammates || updated[p1.id].teammates instanceof Map) updated[p1.id].teammates = {};
+            if (!updated[p2.id].teammates || updated[p2.id].teammates instanceof Map) updated[p2.id].teammates = {};
+            updated[p1.id].teammates[p2.id] = (updated[p1.id].teammates[p2.id] || 0) + 1;
+            updated[p2.id].teammates[p1.id] = (updated[p2.id].teammates[p1.id] || 0) + 1;
           }
         }
 
@@ -1387,10 +1387,10 @@ const PickleballTournamentManager = () => {
         if (match.team2 && match.team2.length === 2) {
           const [p1, p2] = match.team2;
           if (updated[p1.id] && updated[p2.id]) {
-            if (!updated[p1.id].teammates) updated[p1.id].teammates = new Map();
-            if (!updated[p2.id].teammates) updated[p2.id].teammates = new Map();
-            updated[p1.id].teammates.set(p2.id, (updated[p1.id].teammates.get(p2.id) || 0) + 1);
-            updated[p2.id].teammates.set(p1.id, (updated[p2.id].teammates.get(p1.id) || 0) + 1);
+            if (!updated[p1.id].teammates || updated[p1.id].teammates instanceof Map) updated[p1.id].teammates = {};
+            if (!updated[p2.id].teammates || updated[p2.id].teammates instanceof Map) updated[p2.id].teammates = {};
+            updated[p1.id].teammates[p2.id] = (updated[p1.id].teammates[p2.id] || 0) + 1;
+            updated[p2.id].teammates[p1.id] = (updated[p2.id].teammates[p1.id] || 0) + 1;
           }
         }
 
