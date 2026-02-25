@@ -3383,6 +3383,7 @@ const PickleballTournamentManager = () => {
               { n: 2, head: 'Assign matches to courts', body: 'Each court card shows a match. Tap "Assign Match" to send it to that court, then players head out to play.' },
               { n: 3, head: 'Mark matches complete', body: 'When a game finishes, tap "✓ Complete Match" on that court\'s card. The court is then ready for the next match.' },
               { n: 4, head: 'Start the next round', body: 'When all courts are ready, the "Start Round" button appears at the top. Tap it to generate new matchups.' },
+              { n: 5, head: 'Export your results', body: 'When the session is over, tap "End Session" and use the "Download CSV" button to save your results. This file can be uploaded manually to DUPR or other rating tools to update player ratings.' },
             ],
           },
           stats: {
