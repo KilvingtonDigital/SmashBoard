@@ -3372,6 +3372,7 @@ const PickleballTournamentManager = () => {
               { n: 1, head: 'This is your roll call', body: 'Players are added on the Setup tab. Here you\'re confirming who actually showed up today. Great for prepping the night before and checking people in on game day.' },
               { n: 2, head: 'Mark players present', body: 'Tap the ✓ circle next to each player\'s name who is on-site and ready to play. Tap again to mark them absent if they didn\'t show.' },
               { n: 3, head: 'Add late arrivals anytime', body: 'If someone shows up after you\'ve started, you can still add them here mid-session. Their stats will be tracked from that point forward.' },
+              { n: 4, head: 'Remove a player', body: 'Tap the red remove button on any player\'s row to take them off the roster. Stats from rounds already completed are always preserved.' },
             ],
           },
           schedule: {
