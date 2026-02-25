@@ -3356,21 +3356,22 @@ const PickleballTournamentManager = () => {
         const HELP = {
           setup: {
             title: '⚙️ Setup',
-            subtitle: 'Configure your session before players arrive',
+            subtitle: 'Configure your session and build your roster',
             steps: [
               { n: 1, head: 'Name your session', body: 'Type a name like "Monday Night Pickleball" so you can recognise it later.' },
               { n: 2, head: 'Pick a format', body: 'Choose Doubles, Singles, or King of the Court. Not sure? Doubles is the most popular.' },
               { n: 3, head: 'Set the number of courts', body: 'Enter how many courts you have available. The scheduler will fill them every round.' },
-              { n: 4, head: 'Tap "Continue to Roster"', body: 'When your settings look good, tap the green button to move to the Roster tab — then add players and tap the ✓ circle next to each person who is on-site and ready to play.' },
+              { n: 4, head: 'Add your players', body: 'Enter players one at a time using the Name, Rating, and Gender fields — or tap "Add multiple players at once" to enter a full list in one go. You can do this the night before to prep your roster in advance.' },
+              { n: 5, head: 'Tap "Continue to Roster"', body: 'Once all players are entered, tap the button at the bottom. On game day, you\'ll use the Roster tab to do a roll call — checking off who\'s physically on-site and ready to play.' },
             ],
           },
           roster: {
-            title: '👥 Roster',
-            subtitle: 'Add players and mark who\'s here today',
+            title: '👥 Roster — Roll Call',
+            subtitle: 'Confirm who is physically present on the courts today',
             steps: [
-              { n: 1, head: 'Add a player', body: 'Type their name and DUPR rating (skill number, e.g. 3.5), then tap "Add Player".' },
-              { n: 2, head: 'Mark who\'s present', body: 'Tap the circle ✓ next to a player\'s name to show they\'re on court today. Tap again to mark them absent.' },
-              { n: 3, head: 'Edit anytime', body: 'You can add or remove players mid-session. Their previous round stats are always preserved.' },
+              { n: 1, head: 'This is your roll call', body: 'Players are added on the Setup tab. Here you\'re confirming who actually showed up today. Great for prepping the night before and checking people in on game day.' },
+              { n: 2, head: 'Mark players present', body: 'Tap the ✓ circle next to each player\'s name who is on-site and ready to play. Tap again to mark them absent if they didn\'t show.' },
+              { n: 3, head: 'Add late arrivals anytime', body: 'If someone shows up after you\'ve started, you can still add them here mid-session. Their stats will be tracked from that point forward.' },
             ],
           },
           schedule: {
