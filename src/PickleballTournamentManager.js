@@ -2851,10 +2851,16 @@ const PickleballTournamentManager = () => {
                             <span className={`text-xs font-semibold uppercase ${textColor} opacity-80`}>{court.status}</span>
                           </div>
 
-                          {/* Match summary */}
-                          <div className={`w-full px-3 pb-2 text-xs ${textColor} font-medium leading-snug text-center`}
+                          {/* Match summary + spread indicator */}
+                          <div className={`w-full px-3 pb-1 text-xs ${textColor} font-medium leading-snug text-center`}
                             style={{ minHeight: 32 }}>
                             {shortLabel}
+                            {cm && cm.team1 && cm.team2 && (() => {
+                              const avg = arr => arr.reduce((s, p) => s + (Number(p?.rating) || 0), 0) / arr.length;
+                              const spread = Math.abs(avg(cm.team1) - avg(cm.team2));
+                              const dot = spread <= 0.2 ? '🟢' : spread <= 0.4 ? '🟡' : '🔴';
+                              return <div className="mt-0.5 opacity-90">Δ{spread.toFixed(2)} {dot}</div>;
+                            })()}
                           </div>
 
                           {/* Action button */}
@@ -3128,6 +3134,30 @@ const PickleballTournamentManager = () => {
                             </>
                           )
                           }
+
+                          {/* ── Rating fairness row (doubles only) ── */}
+                          {m.team1 && m.team2 && m.gameFormat !== 'singles' && (() => {
+                            const avg = arr => arr.reduce((s, p) => s + (Number(p?.rating) || 0), 0) / arr.length;
+                            const t1 = avg(m.team1);
+                            const t2 = avg(m.team2);
+                            const spread = Math.abs(t1 - t2);
+                            const spreadColor = spread <= 0.2
+                              ? 'bg-green-100 text-green-700'
+                              : spread <= 0.4
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-red-100 text-red-700';
+                            return (
+                              <div className="mt-2 flex items-center gap-2 text-xs text-brand-primary/70">
+                                <span className="font-medium">Balance:</span>
+                                <span className="font-mono">{t1.toFixed(2)}</span>
+                                <span>vs</span>
+                                <span className="font-mono">{t2.toFixed(2)}</span>
+                                <span className={`ml-auto px-2 py-0.5 rounded font-bold ${spreadColor}`}>
+                                  Δ {spread.toFixed(2)}
+                                </span>
+                              </div>
+                            );
+                          })()}
 
                           <div className="mt-3 flex flex-col gap-2">
                             {/* Best of 3 scoring */}
