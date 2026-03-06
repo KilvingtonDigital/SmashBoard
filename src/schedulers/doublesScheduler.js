@@ -162,7 +162,7 @@ export const findBestTeamSplit = (group, playerStats, preferMixedDoubles = false
 
     splitOptions.forEach(split => {
         let score = 0;
-        score += Math.abs(avg(split.team1) - avg(split.team2)) * 10;
+        score += Math.abs(avg(split.team1) - avg(split.team2)) * 100;
 
         const stats1 = playerStats[split.team1[0].id] || { teammates: {} };
         const stats2 = playerStats[split.team2[0].id] || { teammates: {} };
