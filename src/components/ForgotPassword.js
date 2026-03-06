@@ -42,7 +42,7 @@ const ForgotPassword = ({ onSwitchToLogin }) => {
             <div className="w-full max-w-md">
                 {/* Logo/Title */}
                 <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-lime mb-2">DinkSync</h1>
+                    <h1 className="text-4xl font-bold mb-2"><span className="text-white">Dink</span><span className="text-lime">Sync</span></h1>
                     <p className="text-gray">Tournament Management System</p>
                 </div>
 
