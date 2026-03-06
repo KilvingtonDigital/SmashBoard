@@ -2129,8 +2129,8 @@ const PickleballTournamentManager = () => {
       <div className="sticky top-0 z-30 backdrop-blur bg-brand-white/90 border-b border-brand-gray">
         <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-primary to-brand-secondary text-white font-bold text-lg">
-              🏓
+            <div className="grid h-8 w-8 place-items-center rounded-lg bg-brand-primary text-white font-bold text-sm tracking-tight">
+              <span><span className="text-white">D</span><span className="text-brand-secondary">S</span></span>
             </div>
             <div>
               <div className="text-sm font-bold text-brand-primary leading-tight">
