@@ -149,7 +149,7 @@ const selectPlayersForRound = (allPlayers, playerStats, maxPlayers, roundIdx, pr
 };
 
 /* ── Internal: find the best rating-balanced team split for a group of 4 ── */
-const findBestTeamSplit = (group, playerStats, preferMixedDoubles = false) => {
+export const findBestTeamSplit = (group, playerStats, preferMixedDoubles = false) => {
     const [p1, p2, p3, p4] = group;
     const splitOptions = [
         { team1: [p1, p2], team2: [p3, p4] },
@@ -216,7 +216,7 @@ const evaluateGroupQuality = (group, playerStats) => {
 };
 
 /* ── Internal: select the best group of 4 from available players ── */
-const selectBestGroupOfFour = (availablePlayers, playerStats) => {
+export const selectBestGroupOfFour = (availablePlayers, playerStats) => {
     if (availablePlayers.length <= 4) return availablePlayers;
 
     let bestGroup = null;

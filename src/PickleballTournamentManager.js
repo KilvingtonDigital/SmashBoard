@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import InstallPrompt from './InstallPrompt';
+import ScoreModal from './components/ScoreModal';
+import DebugPanel, { useDebugLog } from './components/DebugPanel';
 import { useAuth } from './contexts/AuthContext';
 import { useAPI } from './hooks/useAPI';
 import { useSessionSync } from './hooks/useSessionSync';
 import { generateSinglesRound } from './schedulers/singlesScheduler';
-import { generateRoundRobinRound } from './schedulers/doublesScheduler';
+import { generateRoundRobinRound, selectBestGroupOfFour, findBestTeamSplit } from './schedulers/doublesScheduler';
 import { generateTeamedDoublesRound } from './schedulers/teamedDoublesScheduler';
 import {
   generateKingOfCourtRound, initializeKingOfCourtStats, updateKOTStats,
@@ -42,8 +45,19 @@ const buildResults = (players, rounds, meta, kotStats = null) => {
   const matches = [];
   rounds.forEach((r, rIdx) =>
     r.forEach((m) => {
-      const s1 = typeof m.score1 === 'number' || (typeof m.score1 === 'string' && m.score1.trim() !== '') ? Number(m.score1) : null;
-      const s2 = typeof m.score2 === 'number' || (typeof m.score2 === 'string' && m.score2.trim() !== '') ? Number(m.score2) : null;
+      // Only export completed matches — skip pending and removed
+      if (m.status !== 'completed') return;
+
+      // For best-of-3, sum game scores into score1/score2 if not already set
+      let rawScore1 = m.score1;
+      let rawScore2 = m.score2;
+      if (m.matchFormat === 'best_of_3' && (rawScore1 === '' || rawScore1 == null) && (rawScore2 === '' || rawScore2 == null)) {
+        rawScore1 = (Number(m.game1Score1) || 0) + (Number(m.game2Score1) || 0) + (Number(m.game3Score1) || 0);
+        rawScore2 = (Number(m.game1Score2) || 0) + (Number(m.game2Score2) || 0) + (Number(m.game3Score2) || 0);
+      }
+
+      const s1 = typeof rawScore1 === 'number' || (typeof rawScore1 === 'string' && rawScore1.trim() !== '') ? Number(rawScore1) : null;
+      const s2 = typeof rawScore2 === 'number' || (typeof rawScore2 === 'string' && rawScore2.trim() !== '') ? Number(rawScore2) : null;
 
       // Handle both singles (player1/player2) and doubles (team1/team2) formats
       let team1Data, team2Data;
@@ -365,6 +379,7 @@ const PickleballTournamentManager = () => {
   const api = useAPI();
   const { loadSession, saveSession, clearSession } = useSessionSync();
   const isClearingSession = useRef(false); // prevents autosave race during End & Clear
+  const sessionRestoredRef = useRef(false); // prevents autosave from firing before restore
   const [players, setPlayers] = useState([]);
   const [form, setForm] = useState({ name: '', rating: '', gender: 'male' });
   const [bulkText, setBulkText] = useState('');
@@ -398,26 +413,25 @@ const PickleballTournamentManager = () => {
   const [exportedThisSession, setExportedThisSession] = useState(false);
   const [locked, setLocked] = useState(false);
   const [tournamentName, setTournamentName] = useState('');
-  // Score entry bottom sheet
-  const [scoreSheet, setScoreSheet] = useState(null); // { roundIdx, matchIdx } or null
+  const [scoreSheet, setScoreSheet] = useState(null); // { courtNumber } | null
+  // Schedule sub-tab: 'courts' | 'rounds'
+  const [scheduleView, setScheduleView] = useState('rounds');
   // Help sheet
   const [helpOpen, setHelpOpen] = useState(false);
+
+  const [debugLog, addDebug] = useDebugLog();
 
   // Restore session on mount — backend first, localStorage as fallback
   useEffect(() => {
     const restoreSession = async () => {
+
       // 1. Try backend first (cloud session — survives refresh & works across devices)
       const cloudSnap = await loadSession();
-      if (cloudSnap && cloudSnap.rounds?.length) {
-        if (cloudSnap.players) setPlayers(cloudSnap.players);
-        if (cloudSnap.rounds) setRounds(cloudSnap.rounds);
-        if (cloudSnap.playerStats) setPlayerStats(cloudSnap.playerStats);
-        if (cloudSnap.kotStats) setKotStats(cloudSnap.kotStats);
-        if (cloudSnap.teamStats) setTeamStats(cloudSnap.teamStats);
-        if (cloudSnap.teams) setTeams(cloudSnap.teams);
-        if (typeof cloudSnap.currentRound === 'number') setCurrentRound(cloudSnap.currentRound);
-        if (cloudSnap.locked) setLocked(cloudSnap.locked);
+      if (cloudSnap && (cloudSnap.players?.length || cloudSnap.rounds?.length)) {
+        // Always restore players, config, and tournament name if present
+        if (cloudSnap.players?.length) setPlayers(cloudSnap.players);
         if (cloudSnap.tournamentName) setTournamentName(cloudSnap.tournamentName);
+        if (cloudSnap.teams?.length) setTeams(cloudSnap.teams);
         if (cloudSnap.meta) {
           if (cloudSnap.meta.courts) setCourts(cloudSnap.meta.courts);
           if (cloudSnap.meta.sessionMinutes) setSessionMinutes(cloudSnap.meta.sessionMinutes);
@@ -427,9 +441,24 @@ const PickleballTournamentManager = () => {
           if (cloudSnap.meta.matchFormat) setMatchFormat(cloudSnap.meta.matchFormat);
           if (typeof cloudSnap.meta.separateBySkill === 'boolean') setSeparateBySkill(cloudSnap.meta.separateBySkill);
         }
-        if (cloudSnap.courtStates) setCourtStates(cloudSnap.courtStates);
-        setTab('schedule');
-        console.log('[Session] Restored session from cloud:', cloudSnap.rounds.length, 'rounds');
+        // Restore round-specific state only when there are actual rounds
+        if (cloudSnap.rounds?.length) {
+          setRounds(cloudSnap.rounds);
+          if (cloudSnap.playerStats) setPlayerStats(cloudSnap.playerStats);
+          if (cloudSnap.kotStats) setKotStats(cloudSnap.kotStats);
+          if (cloudSnap.teamStats) setTeamStats(cloudSnap.teamStats);
+          if (typeof cloudSnap.currentRound === 'number') setCurrentRound(cloudSnap.currentRound);
+          if (cloudSnap.locked) setLocked(cloudSnap.locked);
+          // Only restore actively-playing courts
+          if (cloudSnap.courtStates) {
+            const activeCourts = cloudSnap.courtStates.filter(c => c.status === 'playing' && c.currentMatch);
+            if (activeCourts.length > 0) setCourtStates(cloudSnap.courtStates);
+          }
+          setTab('schedule');
+          console.log('[Session] Restored session from cloud:', cloudSnap.rounds.length, 'rounds');
+        } else {
+          console.log('[Session] Restored players/config from cloud (no rounds yet)');
+        }
         return; // Cloud wins — skip localStorage
       }
 
@@ -438,16 +467,11 @@ const PickleballTournamentManager = () => {
       if (!raw) return;
       try {
         const snap = JSON.parse(raw);
-        if (snap.rounds?.length) {
-          if (snap.players) setPlayers(snap.players);
-          if (snap.rounds) setRounds(snap.rounds);
-          if (snap.playerStats) setPlayerStats(snap.playerStats);
-          if (snap.kotStats) setKotStats(snap.kotStats);
-          if (snap.teamStats) setTeamStats(snap.teamStats);
-          if (snap.teams) setTeams(snap.teams);
-          if (typeof snap.currentRound === 'number') setCurrentRound(snap.currentRound);
-          if (snap.locked) setLocked(snap.locked);
+        if (snap.players?.length || snap.rounds?.length) {
+          // Always restore players and config
+          if (snap.players?.length) setPlayers(snap.players);
           if (snap.tournamentName) setTournamentName(snap.tournamentName);
+          if (snap.teams?.length) setTeams(snap.teams);
           if (snap.meta) {
             if (snap.meta.courts) setCourts(snap.meta.courts);
             if (snap.meta.sessionMinutes) setSessionMinutes(snap.meta.sessionMinutes);
@@ -457,25 +481,37 @@ const PickleballTournamentManager = () => {
             if (snap.meta.matchFormat) setMatchFormat(snap.meta.matchFormat);
             if (typeof snap.meta.separateBySkill === 'boolean') setSeparateBySkill(snap.meta.separateBySkill);
           }
-          if (snap.courtStates) setCourtStates(snap.courtStates);
-          setTab('schedule');
-          console.log('[Session] Restored session from localStorage:', snap.rounds.length, 'rounds');
+          // Restore round state only when rounds exist
+          if (snap.rounds?.length) {
+            setRounds(snap.rounds);
+            if (snap.playerStats) setPlayerStats(snap.playerStats);
+            if (snap.kotStats) setKotStats(snap.kotStats);
+            if (snap.teamStats) setTeamStats(snap.teamStats);
+            if (typeof snap.currentRound === 'number') setCurrentRound(snap.currentRound);
+            if (snap.locked) setLocked(snap.locked);
+            if (snap.courtStates) setCourtStates(snap.courtStates);
+            setTab('schedule');
+            console.log('[Session] Restored session from localStorage:', snap.rounds.length, 'rounds');
+          } else {
+            console.log('[Session] Restored players/config from localStorage (no rounds yet)');
+          }
         }
       } catch (e) {
         console.warn('[Session] Failed to restore session from localStorage:', e);
       }
     };
-    restoreSession();
+    // Always lift the autosave guard once restore completes (or fails)
+    restoreSession().finally(() => { sessionRestoredRef.current = true; });
   }, []); // eslint-disable-line
 
-  // Fetch roster from DB on login
+  // Fetch roster from DB on login — only when session has NOT already restored players
+  // (prevents DB fetch from overwriting restored player presence states)
   useEffect(() => {
     const fetchRoster = async () => {
       if (user) {
         try {
           const { success, data } = await api.players.getAll();
           if (success && data.players) {
-            // Map DB fields to frontend format
             const dbPlayers = data.players.map(p => ({
               id: p.id,
               name: p.player_name,
@@ -483,8 +519,9 @@ const PickleballTournamentManager = () => {
               gender: p.gender || 'male',
               present: true
             }));
-            setPlayers(dbPlayers);
-            // Mark migration as complete since we are using DB
+            // Only overwrite players from DB if the session had no players
+            // (avoids resetting presence states set during roll call)
+            setPlayers(prev => prev.length === 0 ? dbPlayers : prev);
             localStorage.setItem('migration_completed', 'true');
           }
         } catch (error) {
@@ -493,7 +530,7 @@ const PickleballTournamentManager = () => {
       }
     };
     fetchRoster();
-  }, [user]);
+  }, [user]); // eslint-disable-line
 
   useEffect(() => {
     localStorage.setItem('pb_roster', JSON.stringify(players));
@@ -536,7 +573,9 @@ const PickleballTournamentManager = () => {
   }, [courts]); // eslint-disable-line
 
   useEffect(() => {
-    // Skip autosave while End & Clear is in progress (prevents stale write after cloud clear)
+    // Guard 1: don't save before session has been restored (prevents blank-state overwrite on mount)
+    if (!sessionRestoredRef.current) return;
+    // Guard 2: skip autosave while End & Clear is in progress
     if (isClearingSession.current) return;
 
     const snapshot = {
@@ -617,9 +656,10 @@ const PickleballTournamentManager = () => {
   // This is immune to double-counting bugs in the imperative playerStats accumulator
   const derivedPlayerStats = useMemo(() => {
     const stats = {};
-    // Count matches played per player from rounds history
+    // Count matches played per player — ONLY from completed matches
     rounds.forEach(round => {
       round.forEach(match => {
+        if (match.status !== 'completed') return; // skip pending / removed
         const playerIds = [];
         if (match.gameFormat === 'singles') {
           if (match.player1) playerIds.push(match.player1.id);
@@ -634,12 +674,14 @@ const PickleballTournamentManager = () => {
         });
       });
     });
-    // Derive sat-out count: only for players who have already appeared in at least one match.
-    // Declaring here (after the first forEach built `stats`) so all match participants are captured.
+    // Derive sat-out: only for players who have played at least one completed match,
+    // and only for rounds that had at least one completed match (i.e. real rounds).
     const everPlayedIds = new Set(Object.keys(stats));
     rounds.forEach(round => {
+      const completedInRound = round.filter(m => m.status === 'completed');
+      if (completedInRound.length === 0) return; // skip purely pending/removed rounds
       const playersInRound = new Set();
-      round.forEach(match => {
+      completedInRound.forEach(match => {
         if (match.gameFormat === 'singles') {
           if (match.player1) playersInRound.add(match.player1.id);
           if (match.player2) playersInRound.add(match.player2.id);
@@ -648,19 +690,16 @@ const PickleballTournamentManager = () => {
           match.team2?.forEach(p => playersInRound.add(p.id));
         }
       });
-      if (round.length > 0) {
-        // Only score players who have already appeared in at least one match
-        // (meaning they were present when this or a prior round was generated)
-        everPlayedIds.forEach(id => {
-          if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
-          if (!playersInRound.has(id)) {
-            stats[id].roundsSatOut += 1;
-          }
-        });
-      }
+      everPlayedIds.forEach(id => {
+        if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
+        if (!playersInRound.has(id)) {
+          stats[id].roundsSatOut += 1;
+        }
+      });
     });
     return stats;
   }, [rounds]); // removed presentPlayers dependency — sat-out universe is now match-history only
+
 
   // Derive accurate team stats from rounds history (ground-truth, like derivedPlayerStats)
   const derivedTeamStats = useMemo(() => {
@@ -701,6 +740,40 @@ const PickleballTournamentManager = () => {
 
     return stats;
   }, [rounds]);
+
+  // \u2500\u2500 Dev lifecycle watchers (placed after all useMemos so deps are in scope) \u2500\u2500
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    addDebug('PLAYERS', `players \u2192 ${players.length}`, {
+      count: players.length,
+      names: players.map(p => `${p.name} [present=${p.present}]`)
+    });
+  }, [players]); // eslint-disable-line
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    addDebug('PRESENT', `presentPlayers \u2192 ${presentPlayers.length}`, {
+      count: presentPlayers.length,
+      names: presentPlayers.map(p => p.name)
+    });
+  }, [presentPlayers]); // eslint-disable-line
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    addDebug('ROUND', `rounds \u2192 ${rounds.length} round(s)`, {
+      rounds: rounds.map((r, i) => ({
+        round: i + 1, matches: r.length,
+        completed: r.filter(m => m.status === 'completed').length
+      }))
+    });
+  }, [rounds]); // eslint-disable-line
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    addDebug('COURT', `courtStates changed`, {
+      courts: courtStates.map(c => ({ court: c.courtNumber, status: c.status, hasMatch: !!c.currentMatch }))
+    });
+  }, [courtStates]); // eslint-disable-line
 
   // Get next-up queue based on fairness
   const getNextUpQueue = useMemo(() => {
@@ -988,7 +1061,16 @@ const PickleballTournamentManager = () => {
   };
 
   const assignDoublesMatchToCourt = (courtNumber) => {
+    // Bench guard: need ≥4 sideline players to form a fresh group
     if (availablePlayers.length < 4) {
+      const stillPlaying = courtStates.filter(c => c.status === 'playing' && c.courtNumber !== courtNumber).length;
+      if (stillPlaying > 0) {
+        return alert(
+          `Not enough bench players to assign early.\n\n` +
+          `There are only ${availablePlayers.length} player(s) sitting out — need at least 4 to form a fresh match.\n\n` +
+          `Wait for more courts to finish, then assign.`
+        );
+      }
       return alert('Need at least 4 available players (not currently playing)');
     }
 
@@ -1059,17 +1141,29 @@ const PickleballTournamentManager = () => {
         : c
     ));
 
-    // Add to rounds: start a new round if the last round is fully completed, otherwise append
+    // ── Round bucketing ────────────────────────────────────────────────────
+    // Key distinction:
+    //  - "established" round: has >= courts matches (generated by generateNextRound).
+    //    Any early assigns while others are still playing go to a NEW round.
+    //  - "forming" round: has < courts matches (fresh batch in progress).
+    //    Assigns keep appending to the same round.
+    const hasOtherCourtsPlaying = courtStates.some(
+      c => c.status === 'playing' && c.courtNumber !== courtNumber
+    );
     setRounds(prev => {
       const newRounds = [...prev];
       if (newRounds.length === 0) {
         newRounds.push([match]);
       } else {
         const lastRound = newRounds[newRounds.length - 1];
-        const lastRoundDone = lastRound.every(m => m.status === 'completed');
-        if (lastRoundDone) {
+        const lastRoundDone = lastRound.every(m => m.status === 'completed' || m.status === 'removed');
+        const lastRoundIsEstablished = lastRound.length >= courts;
+        if (lastRoundDone || (lastRoundIsEstablished && hasOtherCourtsPlaying)) {
+          // All done (fresh round) OR established round with courts still playing (early assign)
           newRounds.push([match]);
+          setCurrentRound(newRounds.length - 1);
         } else {
+          // Fresh batch forming (round has < courts matches) — append
           newRounds[newRounds.length - 1] = [...lastRound, match];
         }
       }
@@ -1265,8 +1359,15 @@ const PickleballTournamentManager = () => {
         );
 
         if (matchAlreadyInRounds) {
-          console.log(`[Complete] Match ${match.id} already in rounds - skipping duplicate add`);
-          return prev; // No change needed
+          console.log(`[Complete] Match ${match.id} already in rounds - marking completed`);
+          // Stamp status=completed and scores on the match in rounds
+          return prev.map(round =>
+            round.map(m =>
+              m.id === match.id
+                ? { ...m, status: 'completed', endTime: m.endTime || new Date().toISOString() }
+                : m
+            )
+          );
         }
 
         // Manual-assigned match: add to current round for the first time
@@ -1445,28 +1546,31 @@ const PickleballTournamentManager = () => {
     ));
   };
 
-  // Undo the most recently completed match — reverts it to pending and restores it to its court
+  // Undo the most recently completed OR removed match
   const undoLastMatch = () => {
-    if (!window.confirm('Undo the last completed match? This will revert its scores and winner.')) return;
+    if (!window.confirm('Undo the last match action? This will revert scores and put the match back on its court.')) return;
 
-    // Find the most recently completed match across all rounds
+    // Find the most recently *actioned* match across all rounds by endTime
     let targetMatch = null;
     let targetRoundIdx = -1;
     let targetMatchIdx = -1;
 
     for (let r = rounds.length - 1; r >= 0; r--) {
       for (let m = rounds[r].length - 1; m >= 0; m--) {
-        if (rounds[r][m].status === 'completed') {
-          targetMatch = rounds[r][m];
+        const match = rounds[r][m];
+        if (match.status !== 'completed' && match.status !== 'removed') continue;
+        if (
+          !targetMatch ||
+          new Date(match.endTime) > new Date(targetMatch.endTime)
+        ) {
+          targetMatch = match;
           targetRoundIdx = r;
           targetMatchIdx = m;
-          break;
         }
       }
-      if (targetMatch) break;
     }
 
-    if (!targetMatch) return alert('No completed matches to undo.');
+    if (!targetMatch) return alert('No completed or removed matches to undo.');
 
     // Revert the match back to pending
     const revertedMatch = {
@@ -1794,6 +1898,9 @@ const PickleballTournamentManager = () => {
   };
 
   const quickWin = (rIdx, mIdx, side) => {
+    // Read court number before setRounds so we can clear the court state after
+    const courtNumForMatch = rounds[rIdx]?.[mIdx]?.court;
+
     setRounds((prev) => {
       const newRounds = prev.map((r) => r.map((m) => ({ ...m })));
       const m = newRounds[rIdx][mIdx];
@@ -1907,6 +2014,15 @@ const PickleballTournamentManager = () => {
       setWinner(m, side);
       return newRounds;
     });
+
+    // Clear the court strip — same as completeCourtMatch but without re-stamping rounds
+    if (courtNumForMatch) {
+      setCourtStates(prev => prev.map(c =>
+        c.courtNumber === courtNumForMatch
+          ? { ...c, status: 'ready', currentMatch: null }
+          : c
+      ));
+    }
   };
 
   const getPlayerStatsDisplay = () => {
@@ -1971,7 +2087,23 @@ const PickleballTournamentManager = () => {
     } else {
       if (Object.keys(derivedPlayerStats).length === 0 && rounds.length === 0) return null;
 
-      const stats = presentPlayers.map(player => {
+      // Build union of: players who appeared in completed matches + currently present players
+      // This ensures stats always show even if present flags were reset
+      const playerMap = {};
+      // First seed from match history (everyone who ever played)
+      rounds.forEach(round => {
+        round.forEach(match => {
+          if (match.status !== 'completed') return;
+          const allP = match.gameFormat === 'singles'
+            ? [match.player1, match.player2].filter(Boolean)
+            : [...(match.team1 || []), ...(match.team2 || [])];
+          allP.forEach(p => { if (p && !playerMap[p.id]) playerMap[p.id] = p; });
+        });
+      });
+      // Then add currently present players (may be new faces not yet in a match)
+      presentPlayers.forEach(p => { if (!playerMap[p.id]) playerMap[p.id] = p; });
+
+      const stats = Object.values(playerMap).map(player => {
         const stat = derivedPlayerStats[player.id] || { matchesPlayed: 0, roundsSatOut: 0 };
         return {
           ...player,
@@ -2659,481 +2791,496 @@ const PickleballTournamentManager = () => {
           </Card>
         )}
 
+
         {tab === 'schedule' && (
-          <div className="space-y-3 sm:space-y-4">
-            {/* Court Flow Management - For Round Robin and King of Court */}
+          <div className="space-y-3">
+            {/* ── Court Flow (Round Robin / KoC only) ── */}
             {(tournamentType === 'round_robin' || tournamentType === 'king_of_court') && (
-              <>
-                {/* Court Status Cards — Mobile Optimized */}
-                <div className="space-y-3">
-                  {/* Generate Round CTA — promoted above cards when session ready */}
-                  {rounds.length === 0 && (
-                    <button
-                      onClick={generateNextRound}
-                      disabled={presentPlayers.length < 4}
-                      className="w-full h-14 rounded-2xl bg-brand-primary text-white text-base font-bold shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
-                    >
-                      🎾 Generate First Round
-                    </button>
-                  )}
-                  {courtStates.every(c => c.status === 'ready') && rounds.length > 0 && (
-                    <button
-                      onClick={generateNextRound}
-                      className="w-full h-14 rounded-2xl bg-brand-primary text-white text-base font-bold shadow-lg active:scale-[0.98] transition-transform"
-                    >
-                      🎾 Start Round {currentRound + 1}
-                    </button>
-                  )}
+              <div className="space-y-2">
 
-                  {/* Court cards */}
-                  {courtStates.map(court => {
-                    const isPlaying = court.status === 'playing';
-                    const isCleaning = court.status === 'cleaning';
-                    const statusStrip = isPlaying
-                      ? 'bg-green-500'
-                      : isCleaning
-                        ? 'bg-orange-400'
-                        : 'bg-brand-gray';
-                    const cardBorder = isPlaying
-                      ? 'border-green-400'
-                      : isCleaning
-                        ? 'border-orange-400'
-                        : 'border-brand-gray';
+                {/* Generate Round button */}
+                {rounds.length === 0 && (
+                  <button
+                    onClick={() => { generateNextRound(); setScheduleView('rounds'); }}
+                    disabled={presentPlayers.length < 4}
+                    className="w-full h-14 rounded-2xl bg-brand-primary text-white text-base font-bold shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] transition-transform"
+                  >
+                    🎾 Generate First Round
+                  </button>
+                )}
+                {courtStates.every(c => c.status === 'ready') && rounds.length > 0 && (
+                  <button
+                    onClick={() => { generateNextRound(); setScheduleView('rounds'); }}
+                    className="w-full h-14 rounded-2xl bg-brand-primary text-white text-base font-bold shadow-lg active:scale-[0.98] transition-transform"
+                  >
+                    🎾 Start Round {currentRound + 1}
+                  </button>
+                )}
 
-                    const cm = court.currentMatch;
-                    const matchLine = cm
-                      ? cm.gameFormat === 'singles'
-                        ? `${cm.player1?.name} vs ${cm.player2?.name}`
-                        : `${cm.team1?.[0]?.name} / ${cm.team1?.[1]?.name}  ⚔️  ${cm.team2?.[0]?.name} / ${cm.team2?.[1]?.name}`
-                      : null;
+                {/* ── Compact Court Strip ── */}
+                <div className="overflow-x-auto pb-1">
+                  <div className="flex gap-2 min-w-max">
+                    {courtStates.map(court => {
+                      const isPlaying = court.status === 'playing';
+                      const isCleaning = court.status === 'cleaning';
+                      const cm = court.currentMatch;
 
-                    return (
-                      <div key={court.courtNumber}
-                        className={`rounded-2xl border-2 ${cardBorder} overflow-hidden bg-white shadow-soft`}>
-                        {/* Status strip */}
-                        <div className={`${statusStrip} px-4 py-2 flex items-center justify-between`}>
-                          <span className="font-bold text-white text-sm tracking-wide">
-                            Court {court.courtNumber}
-                          </span>
-                          <span className="text-white/90 text-xs font-semibold uppercase tracking-wider">
-                            {court.status}
-                          </span>
-                        </div>
+                      const bgColor = isPlaying
+                        ? 'bg-green-500'
+                        : isCleaning
+                          ? 'bg-orange-400'
+                          : 'bg-gray-200';
+                      const textColor = isPlaying || isCleaning ? 'text-white' : 'text-gray-600';
 
-                        {/* Match info */}
-                        <div className="px-4 py-3 min-h-[56px] flex items-center">
-                          {matchLine
-                            ? <span className="text-base font-semibold text-brand-primary leading-snug">{matchLine}</span>
-                            : <span className="text-sm text-brand-primary/40 italic">No match assigned</span>
-                          }
-                        </div>
+                      // Short player label for the pill
+                      const shortLabel = cm
+                        ? cm.gameFormat === 'singles'
+                          ? `${cm.player1?.name?.split(' ')[0]} v ${cm.player2?.name?.split(' ')[0]}`
+                          : `${cm.team1?.[0]?.name?.split(' ')[0]}/${cm.team1?.[1]?.name?.split(' ')[0]} v ${cm.team2?.[0]?.name?.split(' ')[0]}/${cm.team2?.[1]?.name?.split(' ')[0]}`
+                        : 'No match';
 
-                        {/* Actions */}
-                        <div className="px-3 pb-3 flex flex-col gap-2">
-                          {court.status === 'ready' && !cm && (
-                            <Button
-                              className="bg-brand-primary text-white hover:bg-brand-primary/90 w-full h-14 text-base font-bold"
-                              onClick={() => assignMatchToCourt(court.courtNumber, true)}
-                            >
-                              Assign Match
-                            </Button>
-                          )}
-                          {court.status === 'playing' && (
-                            <>
-                              <Button
-                                className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full h-14 text-base font-bold"
+                      return (
+                        <div
+                          key={court.courtNumber}
+                          className={`rounded-2xl ${bgColor} shadow flex flex-col items-center justify-between overflow-hidden`}
+                          style={{ minWidth: 130, maxWidth: 150 }}
+                        >
+                          {/* Header */}
+                          <div className="w-full px-3 pt-2 pb-1 flex items-center justify-between">
+                            <span className={`font-bold text-sm ${textColor}`}>Ct {court.courtNumber}</span>
+                            <span className={`text-xs font-semibold uppercase ${textColor} opacity-80`}>{court.status}</span>
+                          </div>
+
+                          {/* Match summary */}
+                          <div className={`w-full px-3 pb-2 text-xs ${textColor} font-medium leading-snug text-center`}
+                            style={{ minHeight: 32 }}>
+                            {shortLabel}
+                          </div>
+
+                          {/* Action button */}
+                          <div className="w-full px-2 pb-2">
+                            {isPlaying && (
+                              <button
+                                onClick={() => setScoreSheet({ courtNumber: court.courtNumber })}
+                                className="w-full rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold py-1.5 active:scale-95 transition-transform"
+                              >
+                                ✓ Score
+                              </button>
+                            )}
+                            {court.status === 'ready' && !cm && (
+                              <button
+                                onClick={() => assignMatchToCourt(court.courtNumber, true)}
+                                className="w-full rounded-xl bg-brand-primary/80 hover:bg-brand-primary text-white text-xs font-bold py-1.5 active:scale-95 transition-transform"
+                              >
+                                + Assign
+                              </button>
+                            )}
+                            {isCleaning && cm && (
+                              <button
                                 onClick={() => completeCourtMatch(court.courtNumber)}
+                                className="w-full rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold py-1.5 active:scale-95 transition-transform"
                               >
-                                ✓ Complete Match
-                              </Button>
-                              <Button
-                                className="bg-orange-100 text-orange-800 hover:bg-orange-200 w-full h-12 text-sm font-semibold"
-                                onClick={() => completeCourtMatch(court.courtNumber, 'cleaning')}
-                              >
-                                🧹 Set Cleaning
-                              </Button>
-                            </>
-                          )}
-                          {court.status === 'cleaning' && (
-                            <>
-                              {cm && (
-                                <Button
-                                  className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full h-14 text-base font-bold"
-                                  onClick={() => completeCourtMatch(court.courtNumber)}
-                                >
-                                  ✓ Complete Match
-                                </Button>
-                              )}
-                              <Button
-                                className="bg-gray-100 text-gray-700 hover:bg-gray-200 w-full h-12 text-sm font-semibold"
+                                ✓ Done
+                              </button>
+                            )}
+                            {isCleaning && !cm && (
+                              <button
                                 onClick={() => setCourtStates(prev => prev.map(c =>
-                                  c.courtNumber === court.courtNumber
-                                    ? { ...c, status: 'ready', currentMatch: null }
-                                    : c
+                                  c.courtNumber === court.courtNumber ? { ...c, status: 'ready', currentMatch: null } : c
                                 ))}
+                                className="w-full rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold py-1.5 active:scale-95 transition-transform"
                               >
-                                ✓ Clear & Mark Ready
-                              </Button>
-                            </>
-                          )}
+                                ✓ Ready
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Undo */}
-                  {rounds.some(r => r.some(m => m.status === 'completed')) && (
-                    <button
-                      onClick={undoLastMatch}
-                      className="w-full h-11 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold"
-                    >
-                      ↩ Undo Last Completed Match
-                    </button>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
 
+                {/* Undo */}
+                {rounds.some(r => r.some(m => m.status === 'completed')) && (
+                  <button
+                    onClick={undoLastMatch}
+                    className="w-full h-9 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold"
+                  >
+                    ↩ Undo
+                  </button>
+                )}
 
-                {/* Next Up Queue */}
-                <Card>
-                  <h3 className="text-sm font-semibold text-brand-primary mb-3">Next Up (Not Currently Playing)</h3>
-                  {getNextUpQueue.length === 0 ? (
-                    <p className="text-sm text-brand-primary/70">All players/teams are currently on court</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-brand-white">
-                          <tr className="text-left">
-                            <th className="p-2">Priority</th>
-                            <th className="p-2">{gameFormat === 'teamed_doubles' ? 'Team' : 'Player'}</th>
-                            <th className="p-2">Rating</th>
-                            <th className="p-2">Played</th>
-                            <th className="p-2">Sat Out</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getNextUpQueue.slice(0, 10).map((item, idx) => (
-                            <tr key={item.id} className="border-t border-brand-gray/60">
-                              <td className="p-2 font-bold text-brand-primary">{idx + 1}</td>
-                              <td className="p-2">
-                                {gameFormat === 'teamed_doubles' ?
-                                  `${item.player1.name} / ${item.player2.name}` :
-                                  item.name
-                                }
-                              </td>
-                              <td className="p-2">
-                                {gameFormat === 'teamed_doubles' ?
-                                  item.avgRating.toFixed(2) :
-                                  item.rating
-                                }
-                              </td>
-                              <td className="p-2">{item.roundsPlayed || 0}</td>
-                              <td className="p-2">{item.roundsSatOut || 0}</td>
+                {/* ── Courts / Rounds sub-tabs ── */}
+                <div className="flex rounded-xl overflow-hidden border border-brand-gray bg-white shadow-sm mt-1">
+                  {[['courts', '🏟️ Courts'], ['rounds', '📋 Rounds']].map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setScheduleView(key)}
+                      className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${scheduleView === key
+                        ? 'bg-brand-primary text-white'
+                        : 'text-brand-primary/60 hover:bg-brand-gray/30'
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Courts view — Next Up queue + cleaning controls */}
+                {scheduleView === 'courts' && (
+                  <Card>
+                    <h3 className="text-sm font-semibold text-brand-primary mb-3">Next Up (Not Currently Playing)</h3>
+                    {getNextUpQueue.length === 0 ? (
+                      <p className="text-sm text-brand-primary/70">
+                        {presentPlayers.length === 0
+                          ? '⚠️ No players marked present — go to the Roster tab and check players in.'
+                          : 'All players are currently on a court.'}
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-brand-white">
+                            <tr className="text-left">
+                              <th className="p-2">Priority</th>
+                              <th className="p-2">{gameFormat === 'teamed_doubles' ? 'Team' : 'Player'}</th>
+                              <th className="p-2">Rating</th>
+                              <th className="p-2">Played</th>
+                              <th className="p-2">Sat Out</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {getNextUpQueue.length > 10 && (
-                        <div className="text-xs text-brand-primary/60 mt-2">
-                          ...and {getNextUpQueue.length - 10} more
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </Card>
-              </>
+                          </thead>
+                          <tbody>
+                            {getNextUpQueue.map((item, idx) => (
+                              <tr key={item.id} className="border-t border-brand-gray/60">
+                                <td className="p-2 font-bold text-brand-primary">{idx + 1}</td>
+                                <td className="p-2">
+                                  {gameFormat === 'teamed_doubles'
+                                    ? `${item.player1.name} / ${item.player2.name}`
+                                    : item.name
+                                  }
+                                </td>
+                                <td className="p-2">
+                                  {gameFormat === 'teamed_doubles'
+                                    ? item.avgRating.toFixed(2)
+                                    : item.rating
+                                  }
+                                </td>
+                                <td className="p-2">{item.roundsPlayed || 0}</td>
+                                <td className="p-2">{item.roundsSatOut || 0}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Card>
+                )}
+              </div>
             )}
 
-            {/* Round History */}
-            <div className="border-t-2 border-brand-gray/40 pt-3">
-              <h3 className="text-sm font-semibold text-brand-primary mb-3">Match History</h3>
-              {rounds.length === 0 && (
-                <div className="rounded-2xl border-2 border-dashed border-brand-gray bg-white px-5 py-8 text-center space-y-4">
-                  <div className="text-5xl">🎾</div>
-                  <div className="font-bold text-brand-primary text-xl">Ready to play?</div>
-                  <p className="text-sm text-brand-primary/70 leading-relaxed max-w-xs mx-auto">
-                    Here's how to get your first round going:
-                  </p>
-                  <div className="text-left space-y-3 max-w-xs mx-auto">
-                    {[
-                      { n: 1, text: 'Make sure players are marked present on the Roster tab' },
-                      { n: 2, text: 'Tap the green Generate First Round button above' },
-                      { n: 3, text: 'Assign each match to a court and let the games begin!' },
-                    ].map(s => (
-                      <div key={s.n} className="flex items-start gap-3">
-                        <span className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-white text-xs font-bold flex items-center justify-center">{s.n}</span>
-                        <span className="text-sm text-brand-primary/80 leading-relaxed pt-0.5">{s.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
 
-            {rounds.map((round, rIdx) => {
-              const isLatest = rIdx === rounds.length - 1;
-              const completedCount = round.filter(m => m.status === 'completed').length;
-              const allDone = completedCount === round.length && round.length > 0;
-              return (
-                <details key={rIdx} open={isLatest}>
-                  <summary className="list-none cursor-pointer select-none">
-                    <div className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 mb-2 transition-colors ${isLatest
-                      ? 'border-brand-primary bg-brand-primary text-brand-white'
-                      : allDone
-                        ? 'border-green-400 bg-green-50 text-green-800'
-                        : 'border-brand-gray bg-brand-white text-brand-primary'
-                      }`}>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-base">Round {rIdx + 1}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isLatest
-                          ? 'bg-white/20 text-white'
-                          : allDone
-                            ? 'bg-green-200 text-green-800'
-                            : 'bg-brand-gray text-brand-primary/70'
-                          }`}>
-                          {isLatest ? '▶ Current' : allDone ? '✓ Completed' : `${completedCount}/${round.length} done`}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs ${isLatest ? 'text-white/70' : 'text-brand-primary/50'}`}>
-                          {round.length} {round.length === 1 ? 'match' : 'matches'}
-                        </span>
-                        <span className={`text-sm transition-transform details-chevron ${isLatest ? 'text-white' : 'text-brand-primary/60'}`}>
-                          ▾
-                        </span>
-                      </div>
+            {/* ── Match History (Rounds view) ── */}
+            {scheduleView === 'rounds' && (<>
+              <div className="border-t-2 border-brand-gray/40 pt-3">
+                <h3 className="text-sm font-semibold text-brand-primary mb-3">Match History</h3>
+                {rounds.length === 0 && (
+                  <div className="rounded-2xl border-2 border-dashed border-brand-gray bg-white px-5 py-8 text-center space-y-4">
+                    <div className="text-5xl">🎾</div>
+                    <div className="font-bold text-brand-primary text-xl">Ready to play?</div>
+                    <p className="text-sm text-brand-primary/70 leading-relaxed max-w-xs mx-auto">
+                      Here's how to get your first round going:
+                    </p>
+                    <div className="text-left space-y-3 max-w-xs mx-auto">
+                      {[
+                        { n: 1, text: 'Make sure players are marked present on the Roster tab' },
+                        { n: 2, text: 'Tap the green Generate First Round button above' },
+                        { n: 3, text: 'Assign each match to a court and let the games begin!' },
+                      ].map(s => (
+                        <div key={s.n} className="flex items-start gap-3">
+                          <span className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-white text-xs font-bold flex items-center justify-center">{s.n}</span>
+                          <span className="text-sm text-brand-primary/80 leading-relaxed pt-0.5">{s.text}</span>
+                        </div>
+                      ))}
                     </div>
-                  </summary>
-
-                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
-                    {round.map((m, i) => (
-                      <Card key={m.id} className="relative bg-brand-white">
-                        <div className="absolute right-3 top-3 flex items-center gap-2 text-[11px] sm:text-xs text-brand-primary/60 flex-wrap justify-end">
-                          <span>Diff {m.diff?.toFixed?.(2) ?? '--'}</span>
-                          {m.teamGender && (
-                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${m.teamGender === 'male_male' ? 'bg-blue-100 text-blue-700' :
-                              m.teamGender === 'female_female' ? 'bg-pink-100 text-pink-700' :
-                                'bg-purple-100 text-purple-700'
-                              }`}>
-                              {m.teamGender === 'male_male' ? 'M/M' :
-                                m.teamGender === 'female_female' ? 'F/F' : 'Mixed'}
-                            </span>
-                          )}
-                          {m.courtLevel && (
-                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${m.courtLevel === 'KING' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700'
-                              }`}>
-                              {m.courtLevel === 'KING' ? '👑 KING' : m.courtLevel}
-                            </span>
-                          )}
-                          {m.skillLevel && !m.courtLevel && (
-                            <span className={`px-2 py-0.5 rounded text-xs ${m.skillLevel === 'Beginner' ? 'bg-red-100 text-red-700' :
-                              m.skillLevel === 'Advanced Beginner' ? 'bg-orange-100 text-orange-700' :
-                                m.skillLevel === 'Intermediate' ? 'bg-yellow-100 text-yellow-700' :
-                                  m.skillLevel === 'Advanced Intermediate' ? 'bg-green-100 text-green-700' :
-                                    m.skillLevel === 'Advanced' ? 'bg-blue-100 text-blue-700' :
-                                      m.skillLevel === 'Expert' ? 'bg-purple-100 text-purple-700' :
-                                        m.skillLevel === 'Expert Pro' ? 'bg-pink-100 text-pink-700' :
-                                          'bg-gray-100 text-gray-700'
-                              }`}>
-                              {m.skillLevel}
-                            </span>
-                          )}
-                        </div>
-                        {/* Full-width court header - immediately visible for scorekeepers */}
-                        <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 mb-3 px-4 py-2 bg-brand-primary rounded-t-2xl flex items-center justify-between">
-                          <span className="text-white font-bold text-base tracking-wide">
-                            Court {m.court}
-                          </span>
-                          {m.pointsForWin && (
-                            <span className="text-brand-secondary font-bold text-sm">
-                              {m.pointsForWin} pts/win
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Singles Format */}
-                        {m.gameFormat === 'singles' && m.player1 && m.player2 ? (
-                          <>
-                            <div className="mt-1">
-                              <div className="font-semibold text-brand-primary text-sm">Player 1</div>
-                              <div className="text-brand-primary/90">
-                                <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
-                              </div>
-                            </div>
-
-                            <div className="mt-2">
-                              <div className="font-semibold text-brand-primary text-sm">Player 2</div>
-                              <div className="text-brand-primary/90">
-                                <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          /* Doubles Format (regular and teamed) */
-                          <>
-                            <div className="mt-1">
-                              <div className="font-semibold text-brand-primary text-sm">Team 1</div>
-                              {m.team1 ? (
-                                <div className="text-brand-primary/90">
-                                  <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
-                                  <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
-                                </div>
-                              ) : <div className="text-sm">TBD</div>}
-                            </div>
-
-                            <div className="mt-2">
-                              <div className="font-semibold text-brand-primary text-sm">Team 2</div>
-                              {m.team2 ? (
-                                <div className="text-brand-primary/90">
-                                  <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
-                                  <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
-                                </div>
-                              ) : <div className="text-sm">TBD</div>}
-                            </div>
-                          </>
-                        )
-                        }
-
-                        <div className="mt-3 flex flex-col gap-2">
-                          {/* Best of 3 scoring */}
-                          {m.matchFormat === 'best_of_3' ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                                <span className="text-brand-primary">–</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
-                                  onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
-                                  className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            /* Single match scoring */
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min={0}
-                                value={m.score1 === '' ? '' : m.score1 ?? ''}
-                                onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
-                                className="w-20 h-10 rounded border border-brand-gray px-2"
-                              />
-                              <span className="text-brand-primary">–</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={m.score2 === '' ? '' : m.score2 ?? ''}
-                                onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
-                                className="w-20 h-10 rounded border border-brand-gray px-2"
-                              />
-                            </div>
-                          )}
-
-
-                          {m.status !== 'completed' ? (
-                            <div className="flex flex-col gap-2">
-                              <div className="grid grid-cols-2 gap-2 sm:flex">
-                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 1)}>
-                                  {m.gameFormat === 'singles' ? 'Player 1 wins' : 'Team 1 wins'}
-                                </Button>
-                                <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80 w-full sm:w-auto" onClick={() => quickWin(rIdx, i, 2)}>
-                                  {m.gameFormat === 'singles' ? 'Player 2 wins' : 'Team 2 wins'}
-                                </Button>
-                              </div>
-
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
-                                Completed
-                              </span>
-                              {m.pointsForWin && (
-                                <span className="text-xs text-brand-primary/70">
-                                  +{m.pointsForWin} pts awarded
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                    ))}
                   </div>
-                </details>
-              );
-            })}
+                )}
+              </div>
+
+              {rounds.map((round, rIdx) => {
+                const isLatest = rIdx === rounds.length - 1;
+                const completedCount = round.filter(m => m.status === 'completed').length;
+                const allDone = completedCount === round.length && round.length > 0;
+                return (
+                  <details key={rIdx} open={isLatest}>
+                    <summary className="list-none cursor-pointer select-none">
+                      <div className={`flex items-center justify-between px-4 py-3 rounded-xl border-2 mb-2 transition-colors ${isLatest
+                        ? 'border-brand-primary bg-brand-primary text-brand-white'
+                        : allDone
+                          ? 'border-green-400 bg-green-50 text-green-800'
+                          : 'border-brand-gray bg-brand-white text-brand-primary'
+                        }`}>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-base">Round {rIdx + 1}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isLatest
+                            ? 'bg-white/20 text-white'
+                            : allDone
+                              ? 'bg-green-200 text-green-800'
+                              : 'bg-brand-gray text-brand-primary/70'
+                            }`}>
+                            {isLatest ? '▶ Current' : allDone ? '✓ Completed' : `${completedCount}/${round.length} done`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs ${isLatest ? 'text-white/70' : 'text-brand-primary/50'}`}>
+                            {round.length} {round.length === 1 ? 'match' : 'matches'}
+                          </span>
+                          <span className={`text-sm transition-transform details-chevron ${isLatest ? 'text-white' : 'text-brand-primary/60'}`}>
+                            ▾
+                          </span>
+                        </div>
+                      </div>
+                    </summary>
+
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+                      {round.map((m, i) => (
+                        <Card key={m.id} className="relative bg-brand-white">
+                          <div className="absolute right-3 top-3 flex items-center gap-2 text-[11px] sm:text-xs text-brand-primary/60 flex-wrap justify-end">
+                            <span>Diff {m.diff?.toFixed?.(2) ?? '--'}</span>
+                            {m.teamGender && (
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${m.teamGender === 'male_male' ? 'bg-blue-100 text-blue-700' :
+                                m.teamGender === 'female_female' ? 'bg-pink-100 text-pink-700' :
+                                  'bg-purple-100 text-purple-700'
+                                }`}>
+                                {m.teamGender === 'male_male' ? 'M/M' :
+                                  m.teamGender === 'female_female' ? 'F/F' : 'Mixed'}
+                              </span>
+                            )}
+                            {m.courtLevel && (
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${m.courtLevel === 'KING' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                {m.courtLevel === 'KING' ? '👑 KING' : m.courtLevel}
+                              </span>
+                            )}
+                            {m.skillLevel && !m.courtLevel && (
+                              <span className={`px-2 py-0.5 rounded text-xs ${m.skillLevel === 'Beginner' ? 'bg-red-100 text-red-700' :
+                                m.skillLevel === 'Advanced Beginner' ? 'bg-orange-100 text-orange-700' :
+                                  m.skillLevel === 'Intermediate' ? 'bg-yellow-100 text-yellow-700' :
+                                    m.skillLevel === 'Advanced Intermediate' ? 'bg-green-100 text-green-700' :
+                                      m.skillLevel === 'Advanced' ? 'bg-blue-100 text-blue-700' :
+                                        m.skillLevel === 'Expert' ? 'bg-purple-100 text-purple-700' :
+                                          m.skillLevel === 'Expert Pro' ? 'bg-pink-100 text-pink-700' :
+                                            'bg-gray-100 text-gray-700'
+                                }`}>
+                                {m.skillLevel}
+                              </span>
+                            )}
+                          </div>
+                          {/* Full-width court header - immediately visible for scorekeepers */}
+                          <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 mb-3 px-4 py-2 bg-brand-primary rounded-t-2xl flex items-center justify-between">
+                            <span className="text-white font-bold text-base tracking-wide">
+                              Court {m.court}
+                            </span>
+                            {m.pointsForWin && (
+                              <span className="text-brand-secondary font-bold text-sm">
+                                {m.pointsForWin} pts/win
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Singles Format */}
+                          {m.gameFormat === 'singles' && m.player1 && m.player2 ? (
+                            <>
+                              <div className="mt-1">
+                                <div className="font-semibold text-brand-primary text-sm">Player 1</div>
+                                <div className="text-brand-primary/90">
+                                  <div className="text-sm sm:text-base font-medium">{m.player1.name} <span className="text-xs text-brand-primary/60">({m.player1.rating})</span></div>
+                                </div>
+                              </div>
+
+                              <div className="mt-2">
+                                <div className="font-semibold text-brand-primary text-sm">Player 2</div>
+                                <div className="text-brand-primary/90">
+                                  <div className="text-sm sm:text-base font-medium">{m.player2.name} <span className="text-xs text-brand-primary/60">({m.player2.rating})</span></div>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            /* Doubles Format (regular and teamed) */
+                            <>
+                              <div className="mt-1">
+                                <div className="font-semibold text-brand-primary text-sm">Team 1</div>
+                                {m.team1 ? (
+                                  <div className="text-brand-primary/90">
+                                    <div className="text-sm sm:text-base font-medium">{m.team1[0].name} <span className="text-xs text-brand-primary/60">({m.team1[0].rating})</span></div>
+                                    <div className="text-sm sm:text-base font-medium">{m.team1[1].name} <span className="text-xs text-brand-primary/60">({m.team1[1].rating})</span></div>
+                                  </div>
+                                ) : <div className="text-sm">TBD</div>}
+                              </div>
+
+                              <div className="mt-2">
+                                <div className="font-semibold text-brand-primary text-sm">Team 2</div>
+                                {m.team2 ? (
+                                  <div className="text-brand-primary/90">
+                                    <div className="text-sm sm:text-base font-medium">{m.team2[0].name} <span className="text-xs text-brand-primary/60">({m.team2[0].rating})</span></div>
+                                    <div className="text-sm sm:text-base font-medium">{m.team2[1].name} <span className="text-xs text-brand-primary/60">({m.team2[1].rating})</span></div>
+                                  </div>
+                                ) : <div className="text-sm">TBD</div>}
+                              </div>
+                            </>
+                          )
+                          }
+
+                          <div className="mt-3 flex flex-col gap-2">
+                            {/* Best of 3 scoring */}
+                            {m.matchFormat === 'best_of_3' ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-brand-primary/70 w-16">Game 1:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game1Score1 === '' ? '' : m.game1Score1 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game1Score1', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                  <span className="text-brand-primary">–</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game1Score2 === '' ? '' : m.game1Score2 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game1Score2', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-brand-primary/70 w-16">Game 2:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game2Score1 === '' ? '' : m.game2Score1 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game2Score1', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                  <span className="text-brand-primary">–</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game2Score2 === '' ? '' : m.game2Score2 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game2Score2', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-brand-primary/70 w-16">Game 3:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game3Score1 === '' ? '' : m.game3Score1 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game3Score1', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                  <span className="text-brand-primary">–</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={m.game3Score2 === '' ? '' : m.game3Score2 ?? ''}
+                                    onChange={(e) => updateScore(rIdx, i, 'game3Score2', e.target.value)}
+                                    className="w-16 h-9 rounded border border-brand-gray px-2 text-sm"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              /* Single match scoring */
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.score1 === '' ? '' : m.score1 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'score1', e.target.value)}
+                                  className="w-20 h-10 rounded border border-brand-gray px-2"
+                                />
+                                <span className="text-brand-primary">–</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={m.score2 === '' ? '' : m.score2 ?? ''}
+                                  onChange={(e) => updateScore(rIdx, i, 'score2', e.target.value)}
+                                  className="w-20 h-10 rounded border border-brand-gray px-2"
+                                />
+                              </div>
+                            )}
+
+
+                            {m.status !== 'completed' ? (() => {
+                              // Check if this match is currently active on a court
+                              const activeCourt = courtStates.find(
+                                c => c.status === 'playing' && c.currentMatch &&
+                                  (c.currentMatch.id === m.id || c.courtNumber === m.court)
+                              );
+                              // Build player labels
+                              const getN = p => (p && typeof p === 'object') ? p.name : (p || '');
+                              const t1Label = m.gameFormat === 'singles'
+                                ? getN(m.player1)
+                                : (m.team1 ? m.team1.map(getN).join(' & ') : 'Team 1');
+                              const t2Label = m.gameFormat === 'singles'
+                                ? getN(m.player2)
+                                : (m.team2 ? m.team2.map(getN).join(' & ') : 'Team 2');
+                              // Score-aware highlighting
+                              const s1 = Number(m.score1); const s2 = Number(m.score2);
+                              const hasScores = m.score1 !== '' && m.score2 !== '' && !isNaN(s1) && !isNaN(s2) && (s1 > 0 || s2 > 0);
+                              const t1Winning = hasScores && s1 > s2;
+                              const t2Winning = hasScores && s2 > s1;
+                              return (
+                                <div className="flex flex-col gap-2">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Button
+                                      className={`w-full text-xs font-bold transition-opacity ${t1Winning ? 'bg-green-500 text-white' : t2Winning ? 'bg-gray-100 text-gray-400 opacity-60' : 'bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80'}`}
+                                      onClick={() => quickWin(rIdx, i, 1)}
+                                    >
+                                      {t1Winning ? '🏆 ' : ''}{t1Label} win
+                                    </Button>
+                                    <Button
+                                      className={`w-full text-xs font-bold transition-opacity ${t2Winning ? 'bg-green-500 text-white' : t1Winning ? 'bg-gray-100 text-gray-400 opacity-60' : 'bg-brand-secondary text-brand-primary hover:bg-brand-secondary/80'}`}
+                                      onClick={() => quickWin(rIdx, i, 2)}
+                                    >
+                                      {t2Winning ? '🏆 ' : ''}{t2Label} win
+                                    </Button>
+                                  </div>
+                                  {activeCourt && (
+                                    <button
+                                      onClick={() => completeCourtMatch(activeCourt.courtNumber)}
+                                      className="w-full h-10 rounded-xl bg-brand-primary text-white text-sm font-bold active:scale-[0.98] transition-transform"
+                                    >
+                                      ✓ Complete & Clear Court {activeCourt.courtNumber}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()
+                              : (
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-xs px-2 py-1 rounded bg-brand-gray text-brand-primary">
+                                    Completed
+                                  </span>
+                                  {m.pointsForWin && (
+                                    <span className="text-xs text-brand-primary/70">
+                                      +{m.pointsForWin} pts awarded
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </>)}
           </div >
         )}
       </div >
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-brand-gray bg-brand-white/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-3 text-sm">
-          <div className="hidden sm:flex flex-wrap items-center gap-2 text-brand-primary">
-            <span className="rounded-full bg-brand-gray px-3 py-1">Present <b>{presentPlayers.length}</b></span>
-            <span className="rounded-full bg-brand-gray px-3 py-1">Round <b>{currentRound}</b></span>
-          </div>
-          <div className="w-full sm:w-auto">
-            <div className="grid grid-cols-1 sm:flex gap-2">
-              <InstallPrompt className="w-full sm:w-auto" />
-              <Button className="bg-brand-secondary text-brand-primary hover:bg-brand-secondary/90 w-full sm:w-auto" onClick={() => setEndOpen(true)}>
-                End Session
-              </Button>
-              {tab !== 'setup' && tab !== 'roster' && (
-                <Button
-                  className="bg-brand-primary text-brand-white hover:bg-brand-primary/90 w-full sm:w-auto"
-                  onClick={generateNextRound}
-                  disabled={presentPlayers.length < 4}
-                >
-                  Next Round
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+
 
       {
         endOpen && (
@@ -3187,7 +3334,10 @@ const PickleballTournamentManager = () => {
                       // 2. Nuke localStorage immediately before state resets trigger re-renders
                       localStorage.removeItem('pb_session');
                       localStorage.removeItem('pb_roster');
-                      // 3. Clear cloud session (fire-and-forget — DELETE /api/session)
+                      // 3. Overwrite cloud with empty state immediately (don't just DELETE —
+                      //    PUT wins the race if the DELETE is slow, and the restore guard
+                      //    (rounds.length === 0) will skip it naturally on next load)
+                      saveSession({ rounds: [], players: [], teams: [], playerStats: {}, kotStats: {}, teamStats: {}, kotTeamStats: {}, courtStates: [], currentRound: 0 });
                       clearSession();
                       // 4. Reset all React state
                       setPlayers([]);
@@ -3250,106 +3400,43 @@ const PickleballTournamentManager = () => {
               <span className={tab === k ? 'font-bold' : ''}>{label}</span>
             </button>
           ))}
+          {/* End Session — always visible in nav */}
+          <button
+            onClick={() => setEndOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 h-16 text-[11px] font-medium text-red-500 hover:text-red-600 transition-colors select-none"
+          >
+            <span className="text-xl leading-none">🏁</span>
+            <span className="font-semibold">End</span>
+          </button>
         </div>
       </nav>
+      {/* Score Entry Modal - rendered via createPortal inside ScoreModal */}
+      <ScoreModal
+        scoreSheet={scoreSheet}
+        courtStates={courtStates}
+        rounds={rounds}
+        updateScore={updateScore}
+        quickWin={quickWin}
+        completeCourtMatch={completeCourtMatch}
+        setCourtStates={setCourtStates}
+        onRemove={(rIdx, mIdx) => {
+          if (rIdx < 0) return;
+          setRounds(prev => {
+            const updated = prev.map(r => [...r]);
+            updated[rIdx][mIdx] = {
+              ...updated[rIdx][mIdx],
+              status: 'removed',
+              winner: null,
+              score1: '', score2: '',
+              endTime: new Date().toISOString(),
+            };
+            return updated;
+          });
+        }}
+        onClose={() => setScoreSheet(null)}
+      />
 
-      {/* ── Score Entry Bottom Sheet ── */}
-      {
-        scoreSheet !== null && (() => {
-          const r = rounds[scoreSheet.roundIdx];
-          const m = r?.[scoreSheet.matchIdx];
-          if (!m) { setScoreSheet(null); return null; }
-          const isCompleted = m.status === 'completed';
 
-          const team1Label = m.gameFormat === 'singles'
-            ? m.player1?.name
-            : m.team1?.map(p => p.name).join(' / ');
-          const team2Label = m.gameFormat === 'singles'
-            ? m.player2?.name
-            : m.team2?.map(p => p.name).join(' / ');
-
-          return (
-            <>
-              {/* Overlay */}
-              <div
-                className="fixed inset-0 z-[60] bg-black/40"
-                onClick={() => setScoreSheet(null)}
-              />
-              {/* Sheet */}
-              <div className="fixed inset-x-0 bottom-0 z-[70] sheet-enter rounded-t-2xl bg-white shadow-2xl pb-safe">
-                {/* Pull handle */}
-                <div className="flex justify-center pt-3 pb-1">
-                  <div className="w-10 h-1 rounded-full bg-gray-300" />
-                </div>
-
-                <div className="px-5 pb-6 pt-2 space-y-4">
-                  <div className="text-center">
-                    <div className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
-                      Round {scoreSheet.roundIdx + 1} · Court {m.court}
-                    </div>
-                    <div className="text-base font-bold text-brand-primary mt-0.5">Enter Score</div>
-                  </div>
-
-                  {/* Score row */}
-                  <div className="flex items-center gap-3">
-                    {/* Team 1 */}
-                    <div className="flex-1 text-center">
-                      <div className="text-xs font-semibold text-brand-primary/60 mb-1 truncate">{team1Label}</div>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={m.score1 ?? ''}
-                        onChange={e => setRounds(prev => prev.map((rd, ri) => ri !== scoreSheet.roundIdx ? rd :
-                          rd.map((mx, mi) => mi !== scoreSheet.matchIdx ? mx : { ...mx, score1: e.target.value })
-                        ))}
-                        className="w-full h-20 text-5xl font-bold text-center rounded-2xl border-2 border-brand-gray focus:border-brand-secondary focus:outline-none"
-                        inputMode="numeric"
-                        placeholder="0"
-                      />
-                    </div>
-
-                    <div className="text-2xl font-light text-gray-300 pb-5">vs</div>
-
-                    {/* Team 2 */}
-                    <div className="flex-1 text-center">
-                      <div className="text-xs font-semibold text-brand-primary/60 mb-1 truncate">{team2Label}</div>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        value={m.score2 ?? ''}
-                        onChange={e => setRounds(prev => prev.map((rd, ri) => ri !== scoreSheet.roundIdx ? rd :
-                          rd.map((mx, mi) => mi !== scoreSheet.matchIdx ? mx : { ...mx, score2: e.target.value })
-                        ))}
-                        className="w-full h-20 text-5xl font-bold text-center rounded-2xl border-2 border-brand-gray focus:border-brand-secondary focus:outline-none"
-                        inputMode="numeric"
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setScoreSheet(null)}
-                      className="flex-1 h-12 rounded-xl border border-brand-gray text-brand-primary/60 font-semibold text-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => setScoreSheet(null)}
-                      className="flex-2 flex-[2] h-12 rounded-xl bg-brand-primary text-white font-bold text-sm shadow"
-                    >
-                      Save Score ✓
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          );
-        })()
-      }
 
       {/* ── Help Bottom Sheet ── */}
       {helpOpen && (() => {
@@ -3448,6 +3535,8 @@ const PickleballTournamentManager = () => {
         );
       })()}
 
+      {/* Debug Panel — dev-only */}
+      <DebugPanel log={debugLog} />
     </div>
   );
 };
