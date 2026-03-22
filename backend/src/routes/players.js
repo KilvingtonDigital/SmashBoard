@@ -20,7 +20,7 @@ const playerValidation = [
     .withMessage('DUPR rating must be between 0 and 10'),
   body('gender')
     .optional()
-    .isIn(['Male', 'Female', 'Other', ''])
+    .isIn(['Male', 'Female', 'male', 'female', 'Other', 'other', ''])
     .withMessage('Invalid gender value')
 ];
 

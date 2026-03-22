@@ -886,7 +886,7 @@ const PickleballTournamentManager = () => {
   const updatePlayerField = (id, field, value) =>
     setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: field === 'rating' ? Number(value) : value } : p)));
 
-  const parseBulk = () => {
+  const parseBulk = async () => {
     const lines = bulkText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const add = [];
     const normalizeGender = (g) => {
@@ -900,10 +900,40 @@ const PickleballTournamentManager = () => {
       const [name, ratingStr, gender] = line.split(',').map((s) => (s ?? '').trim());
       const rating = Number(ratingStr);
       if (!name || Number.isNaN(rating)) continue;
-      add.push({ id: uid(), name, rating, gender: normalizeGender(gender), present: true });
+      add.push({ name, rating, gender: normalizeGender(gender), present: true });
     }
     if (!add.length) return alert('Nothing to add. Use: Name, Rating, Gender');
-    setPlayers((prev) => [...prev, ...add]);
+
+    // Attempt to persist to the global roster via API
+    try {
+      const apiPayload = add.map(p => ({
+        player_name: p.name,
+        dupr_rating: p.rating,
+        gender: p.gender
+      }));
+      
+      const { success, data } = await api.players.bulkCreate(apiPayload);
+      
+      if (success && data.players) {
+        // Use the returned player objects with actual DB IDs
+        const dbPlayers = data.players.map(p => ({
+          id: p.id,
+          name: p.player_name,
+          rating: Number(p.dupr_rating),
+          gender: p.gender,
+          present: true
+        }));
+        setPlayers((prev) => [...prev, ...dbPlayers]);
+      } else {
+        // Fallback to local IDs if API fails
+        console.warn('Bulk create API failed, proceeding with local players');
+        setPlayers((prev) => [...prev, ...add.map(p => ({ ...p, id: uid() }))]);
+      }
+    } catch (err) {
+      console.warn('Bulk create error, proceeding with local players', err);
+      setPlayers((prev) => [...prev, ...add.map(p => ({ ...p, id: uid() }))]);
+    }
+    
     setBulkText('');
   };
 
