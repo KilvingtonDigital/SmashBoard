@@ -2233,7 +2233,6 @@ const PickleballTournamentManager = () => {
                       }
                     }}
                     className="w-full h-11 rounded-lg border border-brand-gray px-3 focus:border-brand-secondary focus:ring-brand-secondary"
-                    disabled={locked}
                   />
                 </Field>
                 <Field label="Tournament style">
