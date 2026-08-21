@@ -686,10 +686,10 @@ const PickleballTournamentManager = () => {
     const everPlayedIds = new Set(Object.keys(stats));
     const trackableIds = new Set([...presentPlayerIds, ...everPlayedIds]);
     rounds.forEach(round => {
-      const completedInRound = round.filter(m => m.status === 'completed');
-      if (completedInRound.length === 0) return; // skip purely pending/removed rounds
+      const activeMatches = round.filter(m => m.status !== 'removed');
+      if (activeMatches.length === 0) return; // skip purely empty/removed rounds
       const playersInRound = new Set();
-      completedInRound.forEach(match => {
+      activeMatches.forEach(match => {
         if (match.gameFormat === 'singles') {
           if (match.player1) playersInRound.add(match.player1.id);
           if (match.player2) playersInRound.add(match.player2.id);
