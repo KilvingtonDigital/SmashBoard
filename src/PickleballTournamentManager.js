@@ -1774,34 +1774,10 @@ const PickleballTournamentManager = () => {
             }
           });
 
-          if (gameFormat === 'teamed_doubles') {
-            // NOTE: roundsSatOut is already incremented inside generateTeamedDoublesRound
-            // (via updateTeamStatsForRound). We must NOT increment again here or sit-outs
-            // will be double-counted (one increment from the scheduler + one from here = 2x per round).
-            // Nothing to do for teamed_doubles — the scheduler handles it.
-          } else {
-            setPlayerStats(prev => {
-              const updated = { ...prev };
-              presentPlayers.forEach(p => {
-                // Auto-initialise entry if not present (e.g. round 1 when state starts empty)
-                if (!updated[p.id]) {
-                  updated[p.id] = { roundsPlayed: 0, roundsSatOut: 0, lastPlayedRound: -1 };
-                }
-                if (!playersInRound.has(p.id)) {
-                  // Player sat out this round — increment their cumulative sat-out count
-                  updated[p.id] = {
-                    ...updated[p.id],
-                    roundsSatOut: (updated[p.id].roundsSatOut || 0) + 1
-                  };
-                }
-                // NOTE: Do NOT reset roundsSatOut to 0 when player plays.
-                // Historically resetting caused players who sat out frequently to lose their
-                // priority the moment they finally got to play, leading to repeated sit-outs.
-                // The cumulative total is used for scheduling priority.
-              });
-              return updated;
-            });
-          }
+          // NOTE: roundsSatOut and teammate/opponent stats are already updated inside
+          // generateTeamedDoublesRound and generateRoundRobinRound (via updatePlayerStatsForRound).
+          // We must NOT increment again here or sit-outs will be double-counted.
+          // Derived stats (derivedPlayerStats) automatically serve as the ground truth.
 
         } else {
           return alert('Unable to generate balanced matches with current players. Try clearing constraints.');
