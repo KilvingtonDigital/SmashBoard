@@ -177,9 +177,20 @@ export const findBestTeamSplit = (group, playerStats, preferMixedDoubles = false
         if (level1.key === level2.key) score -= 3;
         if (level3.key === level4.key) score -= 3;
 
+        // Gender composition checks: prevent Female-Female vs Male-Male matchups
+        const team1Females = split.team1.filter(p => p.gender === 'female').length;
+        const team1Males = split.team1.filter(p => p.gender !== 'female').length;
+        const team2Females = split.team2.filter(p => p.gender === 'female').length;
+        const team2Males = split.team2.filter(p => p.gender !== 'female').length;
+
+        const isFFvsMM = (team1Females === 2 && team2Males === 2) || (team1Males === 2 && team2Females === 2);
+        if (isFFvsMM) {
+            score += 100000;
+        }
+
         if (preferMixedDoubles) {
-            const team1IsMixed = split.team1.some(p => p.gender === 'female') && split.team1.some(p => p.gender !== 'female');
-            const team2IsMixed = split.team2.some(p => p.gender === 'female') && split.team2.some(p => p.gender !== 'female');
+            const team1IsMixed = team1Females > 0 && team1Males > 0;
+            const team2IsMixed = team2Females > 0 && team2Males > 0;
             if (team1IsMixed) score -= 40;
             if (team2IsMixed) score -= 40;
         }

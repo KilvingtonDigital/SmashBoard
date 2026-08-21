@@ -23,11 +23,26 @@ const findBestTeamSplit = (group) => {
         { team1: [p1, p3], team2: [p2, p4] },
         { team1: [p1, p4], team2: [p2, p3] },
     ];
-    return splits.reduce((best, split) => {
-        const diff = Math.abs(avg(split.team1) - avg(split.team2));
-        const bestDiff = Math.abs(avg(best.team1) - avg(best.team2));
-        return diff < bestDiff ? split : best;
+    let bestSplit = splits[0];
+    let bestScore = Infinity;
+
+    splits.forEach(split => {
+        let score = Math.abs(avg(split.team1) - avg(split.team2));
+        const t1Females = split.team1.filter(p => p.gender === 'female').length;
+        const t1Males = split.team1.filter(p => p.gender !== 'female').length;
+        const t2Females = split.team2.filter(p => p.gender === 'female').length;
+        const t2Males = split.team2.filter(p => p.gender !== 'female').length;
+        const isFFvsMM = (t1Females === 2 && t2Males === 2) || (t1Males === 2 && t2Females === 2);
+        if (isFFvsMM) {
+            score += 100000;
+        }
+        if (score < bestScore) {
+            bestScore = score;
+            bestSplit = split;
+        }
     });
+
+    return bestSplit;
 };
 
 /* ════════════════════════════════════════════════════════════
