@@ -668,11 +668,11 @@ const PickleballTournamentManager = () => {
         if (match.status !== 'completed') return; // skip pending / removed
         const playerIds = [];
         if (match.gameFormat === 'singles') {
-          if (match.player1) playerIds.push(match.player1.id);
-          if (match.player2) playerIds.push(match.player2.id);
+          if (match.player1) playerIds.push(String(match.player1.id));
+          if (match.player2) playerIds.push(String(match.player2.id));
         } else {
-          match.team1?.forEach(p => playerIds.push(p.id));
-          match.team2?.forEach(p => playerIds.push(p.id));
+          match.team1?.forEach(p => playerIds.push(String(p.id)));
+          match.team2?.forEach(p => playerIds.push(String(p.id)));
         }
         playerIds.forEach(id => {
           if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
@@ -681,21 +681,22 @@ const PickleballTournamentManager = () => {
       });
     });
     // Derive sat-out: base this on ALL present players, not just those who have played.
-    // This prevents benchwarmers from getting mathematically starved if courts drop.
-    const presentPlayerIds = presentPlayers.map(p => p.id);
-    const everPlayedIds = new Set(Object.keys(stats));
-    const trackableIds = new Set([...presentPlayerIds, ...everPlayedIds]);
+    // Normalize all IDs to string to prevent Set type mismatches between numeric and string IDs.
+    const presentPlayerIds = presentPlayers.map(p => String(p.id));
+    const everPlayedIds = new Set(Object.keys(stats).map(String));
+    const trackableIds = Array.from(new Set([...presentPlayerIds, ...everPlayedIds]));
+
     rounds.forEach(round => {
       const activeMatches = round.filter(m => m.status !== 'removed');
       if (activeMatches.length === 0) return; // skip purely empty/removed rounds
       const playersInRound = new Set();
       activeMatches.forEach(match => {
         if (match.gameFormat === 'singles') {
-          if (match.player1) playersInRound.add(match.player1.id);
-          if (match.player2) playersInRound.add(match.player2.id);
+          if (match.player1) playersInRound.add(String(match.player1.id));
+          if (match.player2) playersInRound.add(String(match.player2.id));
         } else {
-          match.team1?.forEach(p => playersInRound.add(p.id));
-          match.team2?.forEach(p => playersInRound.add(p.id));
+          match.team1?.forEach(p => playersInRound.add(String(p.id)));
+          match.team2?.forEach(p => playersInRound.add(String(p.id)));
         }
       });
       trackableIds.forEach(id => {
@@ -718,30 +719,34 @@ const PickleballTournamentManager = () => {
     rounds.forEach(round => {
       round.forEach(match => {
         if (match.team1Id) {
-          if (!stats[match.team1Id]) stats[match.team1Id] = { matchesPlayed: 0, roundsSatOut: 0 };
-          stats[match.team1Id].matchesPlayed += 1;
-          everPlayedTeamIds.add(match.team1Id);
+          const t1 = String(match.team1Id);
+          if (!stats[t1]) stats[t1] = { matchesPlayed: 0, roundsSatOut: 0 };
+          stats[t1].matchesPlayed += 1;
+          everPlayedTeamIds.add(t1);
         }
         if (match.team2Id) {
-          if (!stats[match.team2Id]) stats[match.team2Id] = { matchesPlayed: 0, roundsSatOut: 0 };
-          stats[match.team2Id].matchesPlayed += 1;
-          everPlayedTeamIds.add(match.team2Id);
+          const t2 = String(match.team2Id);
+          if (!stats[t2]) stats[t2] = { matchesPlayed: 0, roundsSatOut: 0 };
+          stats[t2].matchesPlayed += 1;
+          everPlayedTeamIds.add(t2);
         }
       });
     });
 
     // Pass 2: count sat-out rounds for teams that have appeared at least once
     rounds.forEach(round => {
-      if (round.length === 0) return;
+      const activeMatches = round.filter(m => m.status !== 'removed');
+      if (activeMatches.length === 0) return;
       const teamsInRound = new Set();
-      round.forEach(match => {
-        if (match.team1Id) teamsInRound.add(match.team1Id);
-        if (match.team2Id) teamsInRound.add(match.team2Id);
+      activeMatches.forEach(match => {
+        if (match.team1Id) teamsInRound.add(String(match.team1Id));
+        if (match.team2Id) teamsInRound.add(String(match.team2Id));
       });
       everPlayedTeamIds.forEach(id => {
-        if (!stats[id]) stats[id] = { matchesPlayed: 0, roundsSatOut: 0 };
-        if (!teamsInRound.has(id)) {
-          stats[id].roundsSatOut += 1;
+        const sId = String(id);
+        if (!stats[sId]) stats[sId] = { matchesPlayed: 0, roundsSatOut: 0 };
+        if (!teamsInRound.has(sId)) {
+          stats[sId].roundsSatOut += 1;
         }
       });
     });
@@ -2114,14 +2119,15 @@ const PickleballTournamentManager = () => {
           const allP = match.gameFormat === 'singles'
             ? [match.player1, match.player2].filter(Boolean)
             : [...(match.team1 || []), ...(match.team2 || [])];
-          allP.forEach(p => { if (p && !playerMap[p.id]) playerMap[p.id] = p; });
+          allP.forEach(p => { if (p && !playerMap[String(p.id)]) playerMap[String(p.id)] = p; });
         });
       });
       // Then add currently present players (may be new faces not yet in a match)
-      presentPlayers.forEach(p => { if (!playerMap[p.id]) playerMap[p.id] = p; });
+      presentPlayers.forEach(p => { if (!playerMap[String(p.id)]) playerMap[String(p.id)] = p; });
 
       const stats = Object.values(playerMap).map(player => {
-        const stat = derivedPlayerStats[player.id] || { matchesPlayed: 0, roundsSatOut: 0 };
+        const pId = String(player.id);
+        const stat = derivedPlayerStats[pId] || derivedPlayerStats[player.id] || { matchesPlayed: 0, roundsSatOut: 0 };
         return {
           ...player,
           roundsPlayed: stat.matchesPlayed,
