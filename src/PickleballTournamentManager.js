@@ -14,6 +14,11 @@ import {
   generateKingOfCourtTeamedRound, initializeKingOfCourtTeamStats, updateKOTTeamStats,
   generateBalancedKOTTeams
 } from './schedulers/kingOfCourtScheduler';
+import {
+  DEFAULT_RATING_LOCK_THRESHOLD, normalizeRatingLockThreshold, ratingLockPoolOf,
+  splitPlayersByRatingLock, generateRatingLockedRound, pickRatingLockedCandidates,
+  matchCrossesRatingLock
+} from './schedulers/ratingLock';
 
 // Version 3.2 - King of Court implementation + Round Robin
 
@@ -397,6 +402,10 @@ const PickleballTournamentManager = () => {
   const [teamBuilderSelected, setTeamBuilderSelected] = useState(null); // player id pending pair in Team Builder
   const [kotAutoTeams, setKotAutoTeams] = useState([]); // For King of Court auto-generated fixed teams
   const [separateBySkill, setSeparateBySkill] = useState(true);
+  // Hard rating lock (DUPR sessions): players at/above the threshold only ever play each other,
+  // players below it only ever play each other. Off by default.
+  const [ratingLockEnabled, setRatingLockEnabled] = useState(false);
+  const [ratingLockThreshold, setRatingLockThreshold] = useState(DEFAULT_RATING_LOCK_THRESHOLD);
   const [preferMixedDoubles, setPreferMixedDoubles] = useState(true);  // Gender-aware pairing for doubles
   const [femaleRestInterval, setFemaleRestInterval] = useState(2);     // Rest after N consecutive rounds
 
@@ -441,6 +450,8 @@ const PickleballTournamentManager = () => {
           if (cloudSnap.meta.gameFormat) setGameFormat(cloudSnap.meta.gameFormat);
           if (cloudSnap.meta.matchFormat) setMatchFormat(cloudSnap.meta.matchFormat);
           if (typeof cloudSnap.meta.separateBySkill === 'boolean') setSeparateBySkill(cloudSnap.meta.separateBySkill);
+          if (typeof cloudSnap.meta.ratingLockEnabled === 'boolean') setRatingLockEnabled(cloudSnap.meta.ratingLockEnabled);
+          if (cloudSnap.meta.ratingLockThreshold) setRatingLockThreshold(normalizeRatingLockThreshold(cloudSnap.meta.ratingLockThreshold));
         }
         // Restore round-specific state only when there are actual rounds
         if (cloudSnap.rounds?.length) {
@@ -481,6 +492,8 @@ const PickleballTournamentManager = () => {
             if (snap.meta.gameFormat) setGameFormat(snap.meta.gameFormat);
             if (snap.meta.matchFormat) setMatchFormat(snap.meta.matchFormat);
             if (typeof snap.meta.separateBySkill === 'boolean') setSeparateBySkill(snap.meta.separateBySkill);
+            if (typeof snap.meta.ratingLockEnabled === 'boolean') setRatingLockEnabled(snap.meta.ratingLockEnabled);
+            if (snap.meta.ratingLockThreshold) setRatingLockThreshold(normalizeRatingLockThreshold(snap.meta.ratingLockThreshold));
           }
           // Restore round state only when rounds exist
           if (snap.rounds?.length) {
@@ -589,7 +602,7 @@ const PickleballTournamentManager = () => {
     const snapshot = {
       players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates,
       tournamentName,
-      meta: { courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, ts: Date.now() },
+      meta: { courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, ratingLockEnabled, ratingLockThreshold, ts: Date.now() },
       locked
     };
     localStorage.setItem('pb_session', JSON.stringify(snapshot));
@@ -600,7 +613,7 @@ const PickleballTournamentManager = () => {
       tournamentType: tournamentType || 'round_robin',
       numCourts: courts
     });
-  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, locked, tournamentName]); // eslint-disable-line
+  }, [players, rounds, playerStats, kotStats, teamStats, currentRound, teams, courtStates, courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, ratingLockEnabled, ratingLockThreshold, locked, tournamentName]); // eslint-disable-line
 
   useEffect(() => {
     const handler = (e) => {
@@ -614,6 +627,15 @@ const PickleballTournamentManager = () => {
 
 
   const presentPlayers = useMemo(() => players.filter((p) => p.present !== false), [players]);
+
+  // Rating lock applies to Round Robin doubles (rotating partners) and singles.
+  // Fixed-team doubles and King of Court are not covered by the lock.
+  const ratingLockSupported = tournamentType === 'round_robin' && gameFormat !== 'teamed_doubles';
+  const ratingLockActive = ratingLockEnabled && ratingLockSupported;
+  const ratingLockPools = useMemo(
+    () => splitPlayersByRatingLock(presentPlayers, ratingLockThreshold),
+    [presentPlayers, ratingLockThreshold]
+  );
 
   // Get players/teams currently playing on courts
   const getPlayersOnCourt = useMemo(() => {
@@ -1000,10 +1022,28 @@ const PickleballTournamentManager = () => {
     });
 
     // Pick player 1 (highest priority)
-    const player1 = sortedAvailable[0];
+    let player1 = sortedAvailable[0];
 
     // Enforce same-gender: only consider opponents of the same gender
-    const sameGenderCandidates = sortedAvailable.slice(1).filter(p => p.gender === player1.gender);
+    let sameGenderCandidates = sortedAvailable.slice(1).filter(p => p.gender === player1.gender);
+
+    if (ratingLockActive) {
+      // Hard lock: opponent must be the same gender AND in the same rating group.
+      // Walk the bench in priority order until someone has a legal opponent.
+      const legalOpponents = (p) => sortedAvailable.filter(q =>
+        q.id !== p.id && q.gender === p.gender &&
+        ratingLockPoolOf(q.rating, ratingLockThreshold) === ratingLockPoolOf(p.rating, ratingLockThreshold));
+      const firstWithOpponent = sortedAvailable.find(p => legalOpponents(p).length > 0);
+      if (!firstWithOpponent) {
+        return alert(
+          `Rating lock is on (${ratingLockPools[0].label} / ${ratingLockPools[1].label}).\n\n` +
+          `No two available players of the same gender are in the same rating group, so no singles match can be assigned without mixing groups.\n\n` +
+          `Wait for another court to finish, or turn the lock off in Setup.`
+        );
+      }
+      player1 = firstWithOpponent;
+      sameGenderCandidates = legalOpponents(player1);
+    }
 
     if (sameGenderCandidates.length === 0) {
       const genderLabel = player1.gender === 'female' ? 'female' : 'male';
@@ -1015,7 +1055,11 @@ const PickleballTournamentManager = () => {
 
     let player2;
 
-    if (separateBySkill && presentPlayers.length >= 8) {
+    if (ratingLockActive) {
+      // Closest rating within the locked group
+      player2 = sameGenderCandidates.reduce((best, p) =>
+        Math.abs(p.rating - player1.rating) < Math.abs(best.rating - player1.rating) ? p : best);
+    } else if (separateBySkill && presentPlayers.length >= 8) {
       // Try to find a skill-compatible same-gender opponent first
       const skillCompatible = sameGenderCandidates.filter(p => canPlayTogether(player1, p));
       if (skillCompatible.length > 0) {
@@ -1048,6 +1092,7 @@ const PickleballTournamentManager = () => {
       winner: null,
       gameFormat: 'singles',
       matchFormat: matchFormat,
+      ...(ratingLockActive ? { skillLevel: ratingLockPools.find(pl => pl.key === ratingLockPoolOf(player1.rating, ratingLockThreshold)).label } : {}),
       startTime: new Date().toISOString()
     };
 
@@ -1119,8 +1164,25 @@ const PickleballTournamentManager = () => {
 
     let group;
 
-    // Apply skill separation if enabled
-    if (separateBySkill && presentPlayers.length >= 8) {
+    if (ratingLockActive) {
+      // Hard lock: all four players must come from the same rating group. Never mix.
+      const sortedAvailable = [...availablePlayers].sort((a, b) => {
+        const statsA = playerStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        const statsB = playerStats[b.id] || { roundsPlayed: 0, roundsSatOut: 0 };
+        return statsA.roundsPlayed - statsB.roundsPlayed || statsB.roundsSatOut - statsA.roundsSatOut;
+      });
+      const lockedPool = pickRatingLockedCandidates(sortedAvailable, ratingLockThreshold, 4);
+      if (!lockedPool) {
+        const benchPools = splitPlayersByRatingLock(availablePlayers, ratingLockThreshold);
+        return alert(
+          `Rating lock is on, so this court cannot be filled yet.\n\n` +
+          `Available now: ${benchPools[0].players.length} player(s) at ${benchPools[0].label}, ` +
+          `${benchPools[1].players.length} player(s) ${benchPools[1].label}. A match needs 4 from the same group.\n\n` +
+          `Wait for another court to finish, or turn the lock off in Setup.`
+        );
+      }
+      group = selectBestGroupOfFour(lockedPool.players, playerStats);
+    } else if (separateBySkill && presentPlayers.length >= 8) {
       // Sort by priority (players who have played least)
       const sortedAvailable = [...availablePlayers].sort((a, b) => {
         const statsA = playerStats[a.id] || { roundsPlayed: 0, roundsSatOut: 0 };
@@ -1174,6 +1236,7 @@ const PickleballTournamentManager = () => {
       winner: null,
       gameFormat: 'doubles',
       matchFormat: matchFormat,
+      ...(ratingLockActive ? { skillLevel: ratingLockPools.find(pl => pl.key === ratingLockPoolOf(group[0].rating, ratingLockThreshold)).label } : {}),
       startTime: new Date().toISOString()
     };
 
@@ -1695,7 +1758,16 @@ const PickleballTournamentManager = () => {
               roundsSatOut: derived.roundsSatOut,
             };
           });
-          newRound = generateSinglesRound(presentPlayers, courts, singlesStats, currentRound, effectiveMatchFormat);
+          if (ratingLockActive) {
+            newRound = generateRatingLockedRound({
+              players: presentPlayers, courts, threshold: ratingLockThreshold,
+              playersPerCourt: 2, roundIndex: currentRound,
+              generate: (poolPlayers, poolCourts) =>
+                generateSinglesRound(poolPlayers, poolCourts, singlesStats, currentRound, effectiveMatchFormat),
+            });
+          } else {
+            newRound = generateSinglesRound(presentPlayers, courts, singlesStats, currentRound, effectiveMatchFormat);
+          }
         } else if (gameFormat === 'teamed_doubles') {
           if (teams.length < 2) return alert('Need at least 2 teams for teamed doubles');
           // Build merged stats: use derivedTeamStats for accurate played/satOut counts,
@@ -1729,7 +1801,18 @@ const PickleballTournamentManager = () => {
               roundsSatOut: derived.roundsSatOut,
             };
           });
-          newRound = generateRoundRobinRound(presentPlayers, courts, schedulingStats, currentRound, separateBySkill, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval, rounds);
+          if (ratingLockActive) {
+            // Each pool is scheduled on its own courts with skill separation off inside the pool,
+            // so there is no bumping, no mixed overflow court and no cross-pool fairness swap.
+            newRound = generateRatingLockedRound({
+              players: presentPlayers, courts, threshold: ratingLockThreshold,
+              playersPerCourt: 4, roundIndex: currentRound,
+              generate: (poolPlayers, poolCourts) =>
+                generateRoundRobinRound(poolPlayers, poolCourts, schedulingStats, currentRound, false, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval, rounds),
+            });
+          } else {
+            newRound = generateRoundRobinRound(presentPlayers, courts, schedulingStats, currentRound, separateBySkill, effectiveMatchFormat, preferMixedDoubles, femaleRestInterval, rounds);
+          }
         }
 
         if (!newRound || newRound.length === 0) {
@@ -1739,6 +1822,11 @@ const PickleballTournamentManager = () => {
             alert('Could not generate any matches. Check that you have enough present players and courts configured.');
           }
           return;
+        }
+
+        if (ratingLockActive && newRound && newRound.some(m => matchCrossesRatingLock(m, ratingLockThreshold))) {
+          // Should be impossible — refuse to publish a round that breaks the lock.
+          throw new Error('Rating lock check failed: a generated match mixed rating groups. No round was created.');
         }
 
         if (newRound && newRound.length > 0) {
@@ -2311,6 +2399,59 @@ const PickleballTournamentManager = () => {
                     )}
                   </div>
                 </Field>
+
+                {/* Hard rating lock — Round Robin doubles (rotating partners) and singles */}
+                {ratingLockSupported && (
+                  <Field label="Rating lock (DUPR)">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={ratingLockEnabled}
+                        onChange={(e) => {
+                          console.log('SETTING CHANGE: Rating lock ->', e.target.checked);
+                          setRatingLockEnabled(e.target.checked);
+                        }}
+                      />
+                      <span className="text-sm">Lock players to their rating group</span>
+                    </label>
+                    {ratingLockEnabled && (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">Split at</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="2"
+                            max="5.5"
+                            value={ratingLockThreshold}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              if (Number.isFinite(v) && v > 0) setRatingLockThreshold(v);
+                            }}
+                            className="w-24 h-11 rounded-lg border border-brand-gray px-3 focus:border-brand-secondary focus:ring-brand-secondary"
+                          />
+                        </div>
+                        <div className="text-xs text-brand-primary/80">
+                          <p><b>{ratingLockPools[0].label}</b>: {ratingLockPools[0].players.length} present · <b>{ratingLockPools[1].label}</b>: {ratingLockPools[1].players.length} present</p>
+                          <p className="italic mt-1">The two groups never share a court. Expect repeat matchups within each group.</p>
+                          {ratingLockPools.filter(pl => pl.players.length > 0 && pl.players.length < (gameFormat === 'singles' ? 2 : 4)).map(pl => (
+                            <p key={pl.key} className="mt-1 text-red-700 font-medium">
+                              ⚠️ {pl.label} has only {pl.players.length} player(s) — not enough for a match, so they will sit out while the lock is on.
+                            </p>
+                          ))}
+                          {ratingLockPools.filter(pl => pl.players.length >= (gameFormat === 'singles' ? 2 : 4) && pl.players.length % (gameFormat === 'singles' ? 2 : 4) !== 0).map(pl => (
+                            <p key={`${pl.key}-sit`} className="mt-1">
+                              {pl.label}: at least {pl.players.length % (gameFormat === 'singles' ? 2 : 4)} player(s) will sit out each round, taking turns.
+                            </p>
+                          ))}
+                          {separateBySkill && (
+                            <p className="mt-1">While the lock is on it replaces "Separate by skill levels" for this format.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </Field>
+                )}
 
                 {/* Mixed Doubles Preferences — only for regular doubles */}
                 {gameFormat === 'doubles' && (
