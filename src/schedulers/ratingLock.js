@@ -54,49 +54,51 @@ export const splitPlayersByRatingLock = (players, threshold = DEFAULT_RATING_LOC
 /**
  * Decide how many courts each pool gets this round.
  *
- * - A pool never gets more courts than it can fill (floor(players / playersPerCourt)).
- * - Every pool that can fill a court gets at least one, when there are enough courts.
- * - Remaining courts go to whichever pool has the most players per court so far.
- * - With fewer courts than pools, the pools take turns round by round.
+ * Goal: over a session, players in every pool get as close as possible to the same number
+ * of games. A pool never gets more courts than it can fill
+ * (floor(players / playersPerCourt)); spare courts stay empty rather than mixing pools.
+ *
+ * Courts are handed out one at a time to the pool that would have the lowest
+ * games-per-player after receiving it, counting what each pool was given in earlier rounds.
+ * So when the courts do not divide evenly, the odd court alternates between pools instead
+ * of always going to the same one, and with a single court the pools take turns.
+ *
+ * Stateless: earlier rounds are replayed from the same inputs, so the result for a given
+ * round is deterministic.
  *
  * @param {number[]} poolSizes       player count per pool
  * @param {number}   courts          total courts available
  * @param {number}   playersPerCourt 4 for doubles, 2 for singles
- * @param {number}   roundIndex      used only to rotate when courts < pools
+ * @param {number}   roundIndex      0-based round number
  * @returns {number[]} courts per pool, same order as poolSizes
  */
 export const allocateCourtsToPools = (poolSizes, courts, playersPerCourt, roundIndex = 0) => {
     const total = Math.max(0, Math.floor(Number(courts) || 0));
     const capacity = poolSizes.map(n => Math.floor(n / playersPerCourt));
-    const alloc = poolSizes.map(() => 0);
     const eligible = capacity.map((c, i) => (c > 0 ? i : -1)).filter(i => i >= 0);
+    let alloc = poolSizes.map(() => 0);
     if (total === 0 || eligible.length === 0) return alloc;
 
-    let remaining = total;
+    const lastRound = Math.max(0, Math.floor(Number(roundIndex) || 0));
+    const given = poolSizes.map(() => 0); // player-slots handed to each pool in earlier rounds
+    const EPS = 1e-9;
 
-    if (remaining < eligible.length) {
-        // Not enough courts for every pool this round — rotate so no pool is starved.
-        const start = ((roundIndex % eligible.length) + eligible.length) % eligible.length;
-        for (let k = 0; k < eligible.length && remaining > 0; k++) {
-            alloc[eligible[(start + k) % eligible.length]] = 1;
-            remaining--;
+    for (let round = 0; round <= lastRound; round++) {
+        alloc = poolSizes.map(() => 0);
+        for (let c = 0; c < total; c++) {
+            let best = -1;
+            eligible.forEach(i => {
+                if (alloc[i] >= capacity[i]) return;
+                if (best === -1) { best = i; return; }
+                const after = (k) => (given[k] + (alloc[k] + 1) * playersPerCourt) / poolSizes[k];
+                const before = (k) => (given[k] + alloc[k] * playersPerCourt) / poolSizes[k];
+                if (after(i) < after(best) - EPS) best = i;
+                else if (Math.abs(after(i) - after(best)) <= EPS && before(i) < before(best) - EPS) best = i;
+            });
+            if (best === -1) break; // every pool is at capacity; spare courts stay empty
+            alloc[best]++;
         }
-        return alloc;
-    }
-
-    eligible.forEach(i => { alloc[i] = 1; remaining--; });
-
-    while (remaining > 0) {
-        let best = -1;
-        let bestLoad = -Infinity;
-        eligible.forEach(i => {
-            if (alloc[i] >= capacity[i]) return;
-            const load = poolSizes[i] / (alloc[i] + 1);
-            if (load > bestLoad) { bestLoad = load; best = i; }
-        });
-        if (best === -1) break; // every pool is at capacity; spare courts stay empty
-        alloc[best]++;
-        remaining--;
+        alloc.forEach((a, i) => { given[i] += a * playersPerCourt; });
     }
 
     return alloc;

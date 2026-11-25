@@ -40,27 +40,60 @@ describe('pool membership', () => {
 });
 
 describe('court allocation', () => {
-    test('each pool gets a court when both can fill one', () => {
-        expect(allocateCourtsToPools([12, 4], 2, 4)).toEqual([1, 1]);
-        expect(allocateCourtsToPools([4, 12], 2, 4)).toEqual([1, 1]);
-    });
-    test('extra courts go to the more crowded pool', () => {
-        expect(allocateCourtsToPools([12, 4], 3, 4)).toEqual([2, 1]);
+    const session = (sizes, courts, rounds, ppc = 4) => {
+        const slots = sizes.map(() => 0);
+        const perRound = [];
+        for (let r = 0; r < rounds; r++) {
+            const a = allocateCourtsToPools(sizes, courts, ppc, r);
+            perRound.push(a);
+            a.forEach((n, i) => { slots[i] += n * ppc; });
+        }
+        return { perRound, gamesPerPlayer: slots.map((s, i) => (sizes[i] ? s / sizes[i] : 0)) };
+    };
+
+    test('even split uses every court every round', () => {
         expect(allocateCourtsToPools([8, 8], 4, 4)).toEqual([2, 2]);
-        expect(allocateCourtsToPools([10, 6], 4, 4)).toEqual([2, 1]); // lower can only fill 1
+        expect(allocateCourtsToPools([8, 9], 4, 4, 5)).toEqual([2, 2]);
     });
+
     test('a pool never gets a court it cannot fill', () => {
         expect(allocateCourtsToPools([9, 3], 4, 4)).toEqual([2, 0]);
         expect(allocateCourtsToPools([3, 3], 4, 4)).toEqual([0, 0]);
+        expect(allocateCourtsToPools([10, 6], 4, 4)).toEqual([2, 1]);
     });
+
+    test('the odd court alternates instead of always going to the same pool', () => {
+        const { perRound, gamesPerPlayer } = session([8, 9], 3, 8);
+        expect(perRound.some(a => a[0] === 2)).toBe(true);
+        expect(perRound.some(a => a[1] === 2)).toBe(true);
+        expect(Math.abs(gamesPerPlayer[0] - gamesPerPlayer[1])).toBeLessThanOrEqual(1);
+    });
+
     test('one court, two pools: they take turns', () => {
-        expect(allocateCourtsToPools([8, 8], 1, 4, 0)).toEqual([1, 0]);
-        expect(allocateCourtsToPools([8, 8], 1, 4, 1)).toEqual([0, 1]);
+        const { perRound } = session([8, 8], 1, 4);
+        expect(perRound.map(a => a[0])).not.toEqual([1, 1, 1, 1]);
+        expect(perRound.map(a => a[0]).reduce((x, y) => x + y)).toBe(2);
     });
-    test('never allocates more than the courts available', () => {
+
+    test('games per player stay close across pools whenever courts are the limit', () => {
+        [[4, 13], [5, 12], [8, 9], [9, 8], [12, 5], [13, 4], [12, 12], [16, 8]].forEach(sizes => {
+            [1, 2, 3].forEach(courts => {
+                const { gamesPerPlayer } = session(sizes, courts, 12);
+                // within one court's worth of games for the smaller pool
+                const tolerance = 4 / Math.min(...sizes);
+                expect(Math.abs(gamesPerPlayer[0] - gamesPerPlayer[1])).toBeLessThanOrEqual(tolerance + 1e-9);
+            });
+        });
+    });
+
+    test('never allocates more than the courts available or a pool can fill', () => {
         for (let courts = 0; courts <= 8; courts++) {
-            const a = allocateCourtsToPools([14, 9], courts, 4, courts);
-            expect(a[0] + a[1]).toBeLessThanOrEqual(courts);
+            for (let r = 0; r < 6; r++) {
+                const a = allocateCourtsToPools([14, 9], courts, 4, r);
+                expect(a[0] + a[1]).toBeLessThanOrEqual(courts);
+                expect(a[0]).toBeLessThanOrEqual(3);
+                expect(a[1]).toBeLessThanOrEqual(2);
+            }
         }
     });
 });
