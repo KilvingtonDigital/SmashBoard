@@ -19,6 +19,7 @@ import {
   splitPlayersByRatingLock, generateRatingLockedRound, pickRatingLockedCandidates,
   matchCrossesRatingLock
 } from './schedulers/ratingLock';
+import { getResultFromScores } from './matchResult';
 
 // Version 3.2 - King of Court implementation + Round Robin
 
@@ -1441,6 +1442,25 @@ const PickleballTournamentManager = () => {
     }
 
     const match = court.currentMatch;
+
+    // GUARD (match-result-guards): never close a Round Robin match silently with no result.
+    // Scores live on the copy of the match in `rounds`, so read them from there.
+    if (tournamentType !== 'king_of_court') {
+      const scored = rounds.flat().find(m => m.id === match.id);
+      if (scored && !scored.winner) {
+        const result = getResultFromScores(scored);
+        if (result.error) {
+          const why = result.tied ? 'has a tied score' : 'has no final score entered';
+          const proceed = window.confirm(
+            `Court ${courtNumber} ${why}.\n\n` +
+            `Press Cancel to go back and enter the score.\n` +
+            `Press OK only if this match was abandoned and should be closed with NO winner recorded.`
+          );
+          if (!proceed) return;
+        }
+      }
+    }
+
     console.log(`[Complete] Completing match on court ${courtNumber} -> ${nextStatus}:`, match);
 
     // Free up the court and set next status (atomic update)
@@ -1654,8 +1674,6 @@ const PickleballTournamentManager = () => {
 
   // Undo the most recently completed OR removed match
   const undoLastMatch = () => {
-    if (!window.confirm('Undo the last match action? This will revert scores and put the match back on its court.')) return;
-
     // Find the most recently *actioned* match across all rounds by endTime
     let targetMatch = null;
     let targetRoundIdx = -1;
@@ -1677,6 +1695,24 @@ const PickleballTournamentManager = () => {
     }
 
     if (!targetMatch) return alert('No completed or removed matches to undo.');
+
+    // GUARD (match-result-guards): undo puts the match back on its court. If that court has
+    // since been given a different match, undoing would overwrite it and strand that match.
+    const targetCourt = courtStates.find(c => c.courtNumber === targetMatch.court);
+    if (!targetCourt) {
+      return alert(
+        `Cannot undo: the last match was on Court ${targetMatch.court}, which is no longer in use.\n\n` +
+        `Set the number of courts back in Setup, then undo.`
+      );
+    }
+    if (targetCourt.currentMatch && targetCourt.currentMatch.id !== targetMatch.id) {
+      return alert(
+        `Cannot undo: Court ${targetMatch.court} already has a new match on it.\n\n` +
+        `Finish that match first, then undo. To fix the earlier score instead, edit it in the round list below.`
+      );
+    }
+
+    if (!window.confirm('Undo the last match action? This will revert scores and put the match back on its court.')) return;
 
     // Revert the match back to pending
     const revertedMatch = {
@@ -2010,6 +2046,15 @@ const PickleballTournamentManager = () => {
   const quickWin = (rIdx, mIdx, side) => {
     // Read court number before setRounds so we can clear the court state after
     const courtNumForMatch = rounds[rIdx]?.[mIdx]?.court;
+
+    // GUARD (match-result-guards): check the result BEFORE touching anything. Previously a
+    // failed check still fell through and cleared the court, leaving the match in limbo.
+    const precheck = getResultFromScores(rounds[rIdx]?.[mIdx]);
+    if (precheck.error) return alert(precheck.error);
+    if (precheck.winner !== side) {
+      const winnerName = precheck.winner === 1 ? 'Team 1' : 'Team 2';
+      return alert(`Score validation failed: The scores indicate ${winnerName} won. Please verify the scores or select the correct winner.`);
+    }
 
     setRounds((prev) => {
       const newRounds = prev.map((r) => r.map((m) => ({ ...m })));
