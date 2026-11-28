@@ -1995,11 +1995,33 @@ const PickleballTournamentManager = () => {
     setKotAutoTeams([]);
     setTeamStats({});
     setLocked(false);
-    // Securely overwrite cloud session with cleared state
-    const currentP = typeof players !== 'undefined' ? players : [];
-    forceSaveSession({ rounds: [], players: currentP, teams: [], playerStats: {}, kotStats: {}, teamStats: {}, kotTeamStats: {}, courtStates: [], currentRound: 0 }).then(() => {
-        clearSession();
-        localStorage.removeItem('pb_session');
+
+    // FIX (clear-rounds-keeps-session): free every court. Previously matches that were still
+    // on court stayed on the court tiles as ghosts after the rounds were cleared.
+    const resetCourts = Array.from({ length: courts }, (_, i) => ({
+      courtNumber: i + 1,
+      status: 'ready',
+      currentMatch: null
+    }));
+    setCourtStates(resetCourts);
+
+    // FIX (clear-rounds-keeps-session): save the cleared session, do NOT delete it.
+    // This used to delete the saved session (cloud and local) after clearing, so a refresh
+    // or a closed tab lost the roster and every setting, including the rating lock.
+    // "Clear All Rounds" clears rounds and statistics only; players, teams and settings stay.
+    const snapshot = {
+      players, rounds: [], playerStats: {}, kotStats: {}, teamStats: {}, currentRound: 0, teams,
+      courtStates: resetCourts,
+      tournamentName,
+      meta: { courts, sessionMinutes, minutesPerRound, tournamentType, gameFormat, matchFormat, separateBySkill, ratingLockEnabled, ratingLockThreshold, ts: Date.now() },
+      locked: false
+    };
+    localStorage.setItem('pb_session', JSON.stringify(snapshot));
+    forceSaveSession({
+      ...snapshot,
+      tournamentName: tournamentName || 'Active Session',
+      tournamentType: tournamentType || 'round_robin',
+      numCourts: courts
     });
   };
 
